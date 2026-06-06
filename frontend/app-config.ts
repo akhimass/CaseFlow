@@ -25,49 +25,27 @@ export interface AppConfig {
   audioVisualizerRadialRadius?: number;
   audioVisualizerWaveLineWidth?: number;
 
-  // agent dispatch configuration
   agentName?: string;
-
-  // LiveKit Cloud Sandbox configuration
   sandboxId?: string;
 }
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {
-  companyName: 'Moss',
-  pageTitle: 'Moss LiveKit Docs Helper',
+  companyName: 'Caseflow',
+  pageTitle: 'Caseflow — Multilingual PI Video Intake',
   pageDescription:
-    'A voice assistant that answers LiveKit questions from a Moss knowledge base and remembers what you tell it',
+    'Multilingual video intake for personal injury cases. Aria conducts intake in Spanish or English, parses documents live, and matches callers to firms.',
 
   supportsChatInput: true,
   supportsVideoInput: true,
-  supportsScreenShare: true,
+  supportsScreenShare: false,
   isPreConnectBufferEnabled: true,
 
-  logo: '/lk-logo.svg',
-  accent: '#002cf2',
-  logoDark: '/lk-logo-dark.svg',
-  accentDark: '#1fd5f9',
-  startButtonText: 'Start call',
+  logo: '/caseflow-mark.svg',
+  accent: '#1e3a5f',
+  logoDark: '/caseflow-mark.svg',
+  accentDark: '#e8a838',
+  startButtonText: 'Start intake',
 
-  // optional: audio visualization configuration
-  // audioVisualizerType: 'bar',
-  // audioVisualizerColor: '#002cf2',
-  // audioVisualizerColorDark: '#1fd5f9',
-  // audioVisualizerColorShift: 0.3,
-  // audioVisualizerBarCount: 5,
-  // audioVisualizerType: 'radial',
-  // audioVisualizerRadialBarCount: 24,
-  // audioVisualizerRadialRadius: 100,
-  // audioVisualizerType: 'grid',
-  // audioVisualizerGridRowCount: 25,
-  // audioVisualizerGridColumnCount: 25,
-  // audioVisualizerType: 'wave',
-  // audioVisualizerWaveLineWidth: 3,
-  // audioVisualizerType: 'aura',
-
-  // agent dispatch configuration
   agentName: process.env.AGENT_NAME ?? undefined,
-
-  // LiveKit Cloud Sandbox configuration
   sandboxId: undefined,
 };

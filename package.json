@@ -1,8 +1,8 @@
 {
-  "name": "moss-hacker-starter",
+  "name": "caseflow",
   "version": "1.0.0",
   "private": true,
-  "description": "LiveKit voice agent (Python) + Next.js frontend starter with Moss document retrieval",
+  "description": "Caseflow — multilingual video PI intake agent (LiveKit + Moss + Unsiloed)",
   "scripts": {
     "setup": "pnpm install:frontend && pnpm install:agent-py && pnpm env:copy",
     "install:frontend": "pnpm --dir frontend install",

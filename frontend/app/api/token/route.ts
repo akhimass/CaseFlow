@@ -15,12 +15,12 @@ type ConnectionDetails = {
 const API_KEY = process.env.LIVEKIT_API_KEY;
 const API_SECRET = process.env.LIVEKIT_API_SECRET;
 const LIVEKIT_URL = process.env.LIVEKIT_URL;
-// Agent dispatch name — must match the agent's registered name (`agent-py`). See `.env.local`.
+// Agent dispatch name — must match the agent's registered name (`caseflow-agent`). See `.env.local`.
 const AGENT_NAME = process.env.AGENT_NAME;
 
 // httpOnly cookie that persists a stable per-user id across visits. Stamped into the agent
-// dispatch metadata as `{ "user_id": <uuid> }` so the agent can scope its Moss memory per user.
-const USER_COOKIE = 'lk_moss_user';
+// dispatch metadata as `{ "user_id": <uuid> }` so the agent can scope case memory per user.
+const USER_COOKIE = 'lk_caseflow_user';
 const USER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
 
 // don't cache the results

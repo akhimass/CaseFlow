@@ -79,10 +79,15 @@ def stub_moss(monkeypatch):
     monkeypatch.setattr(agent_module, "MossClient", _FakeMossClient)
 
 
-async def test_search_knowledge_returns_joined_text_and_publishes_context(
-    stub_moss,
+async def test_search_legal_knowledge_returns_joined_text_and_publishes_context(
+    stub_moss, monkeypatch
 ) -> None:
-    """search_knowledge joins snippets and publishes a well-formed payload."""
+    """search_legal_knowledge joins snippets and publishes a well-formed payload."""
+    async def noop_broadcast(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(agent_module, "broadcast", noop_broadcast)
+
     room = _FakeRoom()
     assistant = Assistant(room=room, user_id=USER_ID)
     assistant._moss.query_result = _FakeSearchResult(
@@ -93,7 +98,7 @@ async def test_search_knowledge_returns_joined_text_and_publishes_context(
         time_taken_ms=7.0,
     )
 
-    result = await assistant.search_knowledge(None, "how does turn detection work?")
+    result = await assistant.search_legal_knowledge(None, "California statute of limitations")
 
     # Returns the snippets joined as plain text.
     assert result == "First snippet.\n\nSecond snippet."
@@ -102,7 +107,7 @@ async def test_search_knowledge_returns_joined_text_and_publishes_context(
     assert len(assistant._moss.query_calls) == 1
     index, query, options = assistant._moss.query_calls[0]
     assert index == agent_module.KNOWLEDGE_INDEX
-    assert query == "how does turn detection work?"
+    assert query == "California statute of limitations"
     assert options.top_k == 3
 
     # Published exactly one moss_context message, reliably.
@@ -115,7 +120,7 @@ async def test_search_knowledge_returns_joined_text_and_publishes_context(
     data = payload["data"]
     # Contractual keys consumed by the frontend parser.
     assert set(data) == {"query", "matches", "time_taken_ms", "timestamp"}
-    assert data["query"] == "how does turn detection work?"
+    assert data["query"] == "California statute of limitations"
     assert data["time_taken_ms"] == 7.0
     assert isinstance(data["timestamp"], (int, float))
 
@@ -127,12 +132,17 @@ async def test_search_knowledge_returns_joined_text_and_publishes_context(
     assert matches[1]["text"] == "Second snippet."
 
 
-async def test_remember_fact_adds_doc_with_user_metadata(stub_moss) -> None:
-    """remember_fact upserts a memory doc tagged with the caller's user_id."""
+async def test_save_case_field_adds_doc_with_user_metadata(stub_moss, monkeypatch) -> None:
+    """save_case_field upserts a memory doc tagged with the caller's user_id."""
+    async def noop_broadcast(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(agent_module, "broadcast", noop_broadcast)
+
     assistant = Assistant(user_id=USER_ID)
 
-    fact = "I am building a drive-thru ordering agent."
-    result = await assistant.remember_fact(None, fact)
+    fact = "rear-end collision"
+    result = await assistant.save_case_field(None, "accident_type", fact)
     assert isinstance(result, str) and result
 
     assert len(assistant._moss.add_docs_calls) == 1
@@ -141,39 +151,42 @@ async def test_remember_fact_adds_doc_with_user_metadata(stub_moss) -> None:
     assert len(docs) == 1
 
     doc = docs[0]
-    assert doc.text == fact
-    assert doc.metadata == {"user_id": USER_ID}
+    assert doc.text == "accident_type=rear-end collision"
+    assert doc.metadata == {"user_id": USER_ID, "field": "accident_type"}
     # Document ids are namespaced by user so writes never collide across users.
     assert doc.id.startswith(f"{USER_ID}-")
 
 
-async def test_recall_facts_filters_by_user_id(stub_moss) -> None:
-    """recall_facts scopes the memory query to the caller via a metadata filter."""
+async def test_recall_case_data_filters_by_user_id(stub_moss, monkeypatch) -> None:
+    """recall_case_data scopes the memory query to the caller via a metadata filter."""
+    async def noop_broadcast(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(agent_module, "broadcast", noop_broadcast)
+
     room = _FakeRoom()
     assistant = Assistant(room=room, user_id=USER_ID)
     assistant._moss.query_result = _FakeSearchResult(
         [
-            _FakeDoc("They are building a drive-thru ordering agent."),
-            _FakeDoc("Their name is Alex."),
+            _FakeDoc("accident_type=rear-end collision"),
+            _FakeDoc("state=CA"),
         ]
     )
 
-    result = await assistant.recall_facts(None, "what am I building?")
+    result = await assistant.recall_case_data(None, "what is the accident type?")
 
-    assert result == (
-        "They are building a drive-thru ordering agent.\nTheir name is Alex."
-    )
+    assert result == "accident_type=rear-end collision\nstate=CA"
 
     assert len(assistant._moss.query_calls) == 1
     index, query, options = assistant._moss.query_calls[0]
     assert index == agent_module.MEMORY_INDEX
-    assert query == "what am I building?"
-    assert options.top_k == 5
+    assert query == "what is the accident type?"
+    assert options.top_k == 8
     # Per-user isolation: the filter must pin user_id to this caller.
     assert options.filter == {
         "field": "user_id",
         "condition": {"$eq": USER_ID},
     }
 
-    # recall_facts also surfaces context to the frontend panel.
-    assert len(room.local_participant.published) == 1
+    # recall_case_data does not publish moss_context (no recall panel push).
+    assert len(room.local_participant.published) == 0

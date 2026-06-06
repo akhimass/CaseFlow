@@ -30,11 +30,11 @@ async def test_offers_assistance() -> None:
                 judge_llm,
                 intent=textwrap.dedent(
                     """\
-                    Greets the user in a friendly manner.
+                    Greets the caller warmly as Aria or Caseflow intake in English or Spanish.
 
                     Optional context that may or may not be included:
-                    - Offer of assistance with any request the user may have
-                    - Other small talk or chit chat is acceptable, so long as it is friendly and not too intrusive
+                    - Asking what happened or inviting them to describe their accident
+                    - Mentioning video or documents is acceptable
                     """
                 ),
             )
@@ -61,8 +61,8 @@ async def test_grounding() -> None:
         with mock_tools(
             Assistant,
             {
-                "recall_facts": lambda: "I don't have anything remembered for you yet.",
-                "search_knowledge": lambda: "No relevant documentation was found.",
+                "recall_case_data": lambda: "No case data saved yet.",
+                "search_legal_knowledge": lambda: "No relevant legal knowledge found.",
             },
         ):
             # Run an agent turn following the user's request for information about their birth city (not known by the agent)

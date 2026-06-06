@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Caseflow — AI-Powered PI Case Marketplace</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    colors: {
+                        border: "hsl(var(--border))",
+                        input: "hsl(var(--input))",
+                        ring: "hsl(var(--ring))",
+                        background: "hsl(var(--background))",
+                        foreground: "hsl(var(--foreground))",
+                        primary: {
+                            DEFAULT: "hsl(var(--primary))",
+                            foreground: "hsl(var(--primary-foreground))",
+                        },
+                        secondary: {
+                            DEFAULT: "hsl(var(--secondary))",
+                            foreground: "hsl(var(--secondary-foreground))",
+                        },
+                        destructive: {
+                            DEFAULT: "hsl(var(--destructive))",
+                            foreground: "hsl(var(--destructive-foreground))",
+                        },
+                        muted: {
+                            DEFAULT: "hsl(var(--muted))",
+                            foreground: "hsl(var(--muted-foreground))",
+                        },
+                        accent: {
+                            DEFAULT: "hsl(var(--accent))",
+                            foreground: "hsl(var(--accent-foreground))",
+                        },
+                        card: {
+                            DEFAULT: "hsl(var(--card))",
+                            foreground: "hsl(var(--card-foreground))",
+                        },
+                    },
+                    borderRadius: {
+                        lg: "var(--radius)",
+                        md: "calc(var(--radius) - 2px)",
+                        sm: "calc(var(--radius) - 4px)",
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        :root {
+            --background: 0 0% 100%;
+            --foreground: 222.2 84% 4.9%;
+            --card: 0 0% 100%;
+            --card-foreground: 222.2 84% 4.9%;
+            --primary: 222.2 47.4% 11.2%;
+            --primary-foreground: 210 40% 98%;
+            --secondary: 210 40% 96.1%;
+            --secondary-foreground: 222.2 47.4% 11.2%;
+            --muted: 210 40% 96.1%;
+            --muted-foreground: 215.4 16.3% 46.9%;
+            --accent: 210 40% 96.1%;
+            --accent-foreground: 222.2 47.4% 11.2%;
+            --destructive: 0 84.2% 60.2%;
+            --destructive-foreground: 210 40% 98%;
+            --border: 214.3 31.8% 91.4%;
+            --input: 214.3 31.8% 91.4%;
+            --ring: 222.2 84% 4.9%;
+            --radius: 0.75rem;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background-color: hsl(var(--background));
+            color: hsl(var(--foreground));
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+        }
+
+        .gradient-text {
+            background: linear-gradient(135deg, hsl(222.2 47.4% 11.2%) 0%, hsl(215 27.9% 30%) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .card-hover {
+            transition: all 0.2s ease;
+        }
+
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.1);
+        }
+
+        @keyframes fade-up {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate-fade-up {
+            animation: fade-up 0.6s ease forwards;
+        }
+
+        .animate-delay-100 { animation-delay: 100ms; }
+        .animate-delay-200 { animation-delay: 200ms; }
+        .animate-delay-300 { animation-delay: 300ms; }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+        }
+
+        @media (max-width: 1024px) {
+            .feature-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 640px) {
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+        }
+
+        @media (max-width: 1024px) {
+            .pricing-grid {
+                grid-template-columns: 1fr;
+                max-width: 400px;
+                margin: 0 auto;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 glass border-b border-border">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16 lg:h-18">
+                <!-- Logo -->
+                <a href="#" class="flex items-center gap-2.5 font-semibold text-lg">
+                    <div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+                        <svg class="w-4 h-4 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                            <path d="m9 15 2 2 4-4"/>
+                        </svg>
+                    </div>
+                    <span>Caseflow</span>
+                </a>
+
+                <!-- Desktop Nav -->
+                <div class="hidden lg:flex items-center gap-8">
+                    <a href="#features" class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Features</a>
+                    <a href="#how-it-works" class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">How it Works</a>
+                    <a href="#for-consumers" class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">For Consumers</a>
+                    <a href="#for-firms" class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">For Firms</a>
+                    <a href="#pricing" class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Pricing</a>
+                </div>
+
+                <!-- CTA Buttons -->
+                <div class="flex items-center gap-3">
+                    <a href="#" class="hidden sm:inline-flex h-9 px-4 items-center justify-center rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                        See Demo
+                    </a>
+                    <a href="#" class="inline-flex h-9 px-4 items-center justify-center rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+                        Get Started
+                    </a>
+                </div>
+
+                <!-- Mobile Menu Button -->
+                <button class="lg:hidden p-2 -mr-2" onclick="document.getElementById('mobile-menu').classList.toggle('hidden')">
+                    <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Mobile Menu -->
+        <div id="mobile-menu" class="hidden lg:hidden border-t border-border">
+            <div class="px-6 py-4 space-y-3 bg-background">
+                <a href="#features" class="block py-2 text-sm font-medium text-muted-foreground">Features</a>
+                <a href="#how-it-works" class="block py-2 text-sm font-medium text-muted-foreground">How it Works</a>
+                <a href="#for-consumers" class="block py-2 text-sm font-medium text-muted-foreground">For Consumers</a>
+                <a href="#for-firms" class="block py-2 text-sm font-medium text-muted-foreground">For Firms</a>
+                <a href="#pricing" class="block py-2 text-sm font-medium text-muted-foreground">Pricing</a>
+                <div class="pt-3 border-t border-border flex gap-3">
+                    <a href="#" class="flex-1 py-2 text-center text-sm font-medium border border-border rounded-lg">See Demo</a>
+                    <a href="#" class="flex-1 py-2 text-center text-sm font-medium bg-primary text-primary-foreground rounded-lg">Get Started</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="relative pt-32 pb-20 lg:pt-40 lg:pb-32 overflow-hidden">
+        <!-- Background gradient -->
+        <div class="absolute inset-0 -z-10">
+            <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-gradient-to-b from-primary/5 to-transparent rounded-full blur-3xl"></div>
+        </div>
+
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="text-center max-w-3xl mx-auto">
+                <!-- Badge -->
+                <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-secondary text-sm font-medium text-muted-foreground mb-6">
+                    <span class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    Processing cases in 25+ languages
+                </div>
+
+                <!-- Headline -->
+                <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.1] mb-6">
+                    Turn every injury inquiry into a <span class="gradient-text">qualified case.</span>
+                </h1>
+
+                <!-- Subheadline -->
+                <p class="text-lg lg:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
+                    Caseflow is an AI intake and case marketplace that speaks the client's language, captures documents and video, scores case strength in real time, and routes each matter to firms that want it.
+                </p>
+
+                <!-- CTAs -->
+                <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+                    <a href="#" class="inline-flex items-center justify-center h-11 px-8 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-sm hover:shadow">
+                        Start Intake
+                        <svg class="ml-2 w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 12h14M12 5l7 7-7 7"/>
+                        </svg>
+                    </a>
+                    <a href="#" class="inline-flex items-center justify-center h-11 px-8 rounded-lg text-sm font-medium border border-border hover:bg-accent hover:text-accent-foreground transition-all gap-2">
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="5 3 19 12 5 21 5 3" fill="currentColor"/>
+                        </svg>
+                        Watch Demo
+                    </a>
+                </div>
+            </div>
+
+            <!-- Hero Mockup -->
+            <div class="mt-16 lg:mt-24 max-w-5xl mx-auto">
+                <div class="bg-card rounded-2xl border border-border shadow-2xl overflow-hidden">
+                    <!-- Window Controls -->
+                    <div class="flex items-center gap-2 px-4 py-3 bg-muted/50 border-b border-border">
+                        <div class="flex gap-1.5">
+                            <div class="w-3 h-3 rounded-full bg-red-400/80"></div>
+                            <div class="w-3 h-3 rounded-full bg-yellow-400/80"></div>
+                            <div class="w-3 h-3 rounded-full bg-green-400/80"></div>
+                        </div>
+                        <div class="flex gap-2 ml-4">
+                            <button class="px-3 py-1 text-xs font-medium bg-background rounded-md border border-border">Consumer Intake</button>
+                            <button class="px-3 py-1 text-xs font-medium text-muted-foreground">Firm Dashboard</button>
+                        </div>
+                    </div>
+
+                    <!-- Dashboard Grid -->
+                    <div class="grid lg:grid-cols-2">
+                        <!-- Left Panel - Consumer -->
+                        <div class="p-6 lg:p-8 border-b lg:border-b-0 lg:border-r border-border bg-muted/20">
+                            <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">Live Intake Session</p>
+                            
+                            <!-- Intake Card -->
+                            <div class="bg-background rounded-xl border border-border p-4 mb-4">
+                                <div class="flex items-center justify-between mb-3">
+                                    <span class="font-semibold">Auto Accident</span>
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-green-100 text-green-700 text-xs font-medium">Qualified</span>
+                                </div>
+                                <p class="text-sm text-muted-foreground mb-3">María García · Spanish Intake · 2:34</p>
+                                <div class="h-1.5 bg-secondary rounded-full overflow-hidden">
+                                    <div class="h-full w-3/4 bg-primary rounded-full"></div>
+                                </div>
+                            </div>
+
+                            <!-- Docs Captured -->
+                            <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Documents Captured</p>
+                            <div class="space-y-2">
+                                <div class="flex items-center gap-3 p-3 bg-background rounded-lg border border-border">
+                                    <div class="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
+                                        <svg class="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                                            <path d="M14 2v6h6"/>
+                                        </svg>
+                                    </div>
+                                    <div class="flex-1">
+                                        <p class="text-sm font-medium">Police Report.pdf</p>
+                                        <p class="text-xs text-green-600 font-medium">Parsed</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3 p-3 bg-background rounded-lg border border-border">
+                                    <div class="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
+                                        <svg class="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                                            <path d="M14 2v6h6"/>
+                                        </svg>
+                                    </div>
+                                    <div class="flex-1">
+                                        <p class="text-sm font-medium">Medical Records.pdf</p>
+                                        <p class="text-xs text-green-600 font-medium">Parsed</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3 p-3 bg-background rounded-lg border border-border">
+                                    <div class="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
+                                        <svg class="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                            <circle cx="8.5" cy="8.5" r="1.5"/>
+                                            <path d="m21 15-5-5L5 21"/>
+                                        </svg>
+                                    </div>
+                                    <div class="flex-1">
+                                        <p class="text-sm font-medium">Injury Photo.jpg</p>
+                                        <p class="text-xs text-muted-foreground">Uploaded</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Panel - Firm -->
+                        <div class="p-6 lg:p-8 bg-background">
+                            <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">Case Board — 3 Matches Ready</p>
+
+                            <!-- Metrics -->
+                            <div class="grid grid-cols-2 gap-3 mb-4">
+                                <div class="bg-secondary/50 rounded-xl p-4">
+                                    <p class="text-2xl font-bold">24</p>
+                                    <p class="text-xs text-muted-foreground">Intakes Today</p>
+                                </div>
+                                <div class="bg-secondary/50 rounded-xl p-4">
+                                    <p class="text-2xl font-bold">18</p>
+                                    <p class="text-xs text-muted-foreground">Qualified</p>
+                                </div>
+                            </div>
+
+                            <!-- Case Cards -->
+                            <div class="space-y-3">
+                                <div class="bg-card rounded-xl border border-border p-4">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <span class="font-semibold text-sm">Auto Accident — Rear End</span>
+                                        <div class="flex items-center gap-1 text-amber-600">
+                                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                                            </svg>
+                                            <span class="text-sm font-semibold">87</span>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-3 gap-2 text-xs">
+                                        <div>
+                                            <p class="text-muted-foreground">Jurisdiction</p>
+                                            <p class="font-medium">California</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-muted-foreground">Severity</p>
+                                            <p class="font-medium">Moderate</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-muted-foreground">Est. Value</p>
+                                            <p class="font-medium">$45K–$85K</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-card rounded-xl border border-border p-4">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <span class="font-semibold text-sm">Slip & Fall — Retail</span>
+                                        <div class="flex items-center gap-1 text-amber-600">
+                                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                                            </svg>
+                                            <span class="text-sm font-semibold">72</span>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-3 gap-2 text-xs">
+                                        <div>
+                                            <p class="text-muted-foreground">Jurisdiction</p>
+                                            <p class="font-medium">Texas</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-muted-foreground">Severity</p>
+                                            <p class="font-medium">Minor</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-muted-foreground">Est. Value</p>
+                                            <p class="font-medium">$12K–$25K</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Trust Strip -->
+    <section class="py-12 border-y border-border bg-muted/30">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <p class="text-center text-sm font-medium text-muted-foreground mb-6">Built on enterprise infrastructure</p>
+            <div class="flex flex-wrap items-center justify-center gap-8 lg:gap-12">
+                <span class="text-sm font-semibold text-muted-foreground/60 tracking-wide">MOSS</span>
+                <span class="text-sm font-semibold text-muted-foreground/60 tracking-wide">LiveKit</span>
+                <span class="text-sm font-semibold text-muted-foreground/60 tracking-wide">Unsiloed</span>
+                <span class="text-sm font-semibold text-muted-foreground/60 tracking-wide">MiniMax</span>
+                <span class="text-sm font-semibold text-muted-foreground/60 tracking-wide">Qwen</span>
+                <span class="text-sm font-semibold text-muted-foreground/60 tracking-wide">TrueFoundry</span>
+                <span class="text-sm font-semibold text-muted-foreground/60 tracking-wide">AWS</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Value Proposition -->
+    <section id="features" class="py-20 lg:py-32">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="text-center max-w-2xl mx-auto mb-16">
+                <p class="text-sm font-semibold text-primary uppercase tracking-wider mb-3">Platform Overview</p>
+                <h2 class="text-3xl lg:text-4xl font-bold tracking-tight mb-4">Three tracks. One platform. Zero friction.</h2>
+                <p class="text-lg text-muted-foreground">Caseflow spans the entire PI intake lifecycle—from first consumer touchpoint to firm-side case brief.</p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-6">
+                <!-- Lead Gen Card -->
+                <div class="group bg-card rounded-2xl border border-border p-8 card-hover">
+                    <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-6">
+                        <svg class="w-6 h-6 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                            <circle cx="9" cy="7" r="4"/>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-semibold mb-3">Lead Gen</h3>
+                    <p class="text-muted-foreground leading-relaxed">Capture every inbound inquiry—voice, chat, or video—and convert them into qualified cases with complete documentation.</p>
+                </div>
+
+                <!-- Support Card -->
+                <div class="group bg-card rounded-2xl border border-border p-8 card-hover">
+                    <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-6">
+                        <svg class="w-6 h-6 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M2 12h20"/>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-semibold mb-3">Support</h3>
+                    <p class="text-muted-foreground leading-relaxed">Guide consumers through the intake in their language—whether English, Spanish, or 23 other languages—with compassionate, compliant assistance.</p>
+                </div>
+
+                <!-- Co-Pilot Card -->
+                <div class="group bg-card rounded-2xl border border-border p-8 card-hover">
+                    <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-6">
+                        <svg class="w-6 h-6 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"/>
+                            <path d="M8.5 8.5v.01"/>
+                            <path d="M16 15.5v.01"/>
+                            <path d="M12 12v.01"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-semibold mb-3">Co-Pilot</h3>
+                    <p class="text-muted-foreground leading-relaxed">Ambient intelligence for legal teams—brief summaries, document parsing, comparable retrieval, and case context at your fingertips.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section id="how-it-works" class="py-20 lg:py-32 bg-muted/30">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="text-center max-w-2xl mx-auto mb-16">
+                <p class="text-sm font-semibold text-primary uppercase tracking-wider mb-3">How It Works</p>
+                <h2 class="text-3xl lg:text-4xl font-bold tracking-tight mb-4">From inquiry to case packet in minutes.</h2>
+                <p class="text-lg text-muted-foreground">A streamlined process that eliminates intake chaos and delivers firms exactly what they need.</p>
+            </div>
+
+            <div class="max-w-3xl mx-auto space-y-4">
+                <!-- Step 1 -->
+                <div class="flex gap-6 p-6 bg-card rounded-xl border border-border card-hover">
+                    <div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-semibold">1</div>
+                    <div>
+                        <h3 class="font-semibold text-lg mb-1">Consumer starts intake</h3>
+                        <p class="text-muted-foreground">Voice, chat, or video—consumers connect however they prefer. The system welcomes them in their language and begins the guided intake process.</p>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="flex gap-6 p-6 bg-card rounded-xl border border-border card-hover">
+                    <div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-semibold">2</div>
+                    <div>
+                        <h3 class="font-semibold text-lg mb-1">AI asks qualifying questions</h3>
+                        <p class="text-muted-foreground">Adaptive questioning assesses case type, severity, jurisdiction, liability signals, and urgency. Documents are uploaded or held up to the camera.</p>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="flex gap-6 p-6 bg-card rounded-xl border border-border card-hover">
+                    <div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-semibold">3</div>
+                    <div>
+                        <h3 class="font-semibold text-lg mb-1">System scores the case</h3>
+                        <p class="text-muted-foreground">Case strength, jurisdiction fit, liability indicators, and urgency are scored in real time. Comparable settlements are retrieved for context.</p>
+                    </div>
+                </div>
+
+                <!-- Step 4 -->
+                <div class="flex gap-6 p-6 bg-card rounded-xl border border-border card-hover">
+                    <div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-semibold">4</div>
+                    <div>
+                        <h3 class="font-semibold text-lg mb-1">Match to vetted firms</h3>
+                        <p class="text-muted-foreground">Each qualified case is routed to firms that actively want that case type, jurisdiction, and severity profile—no more spray-and-pray leads.</p>
+                    </div>
+                </div>
+
+                <!-- Step 5 -->
+                <div class="flex gap-6 p-6 bg-card rounded-xl border border-border card-hover">
+                    <div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-semibold">5</div>
+                    <div>
+                        <h3 class="font-semibold text-lg mb-1">Firm receives ready-to-review packet</h3>
+                        <p class="text-muted-foreground">Transcripts, parsed documents, case summary, strength score, and comparable data—all organized and audit-ready for immediate review.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Grid -->
+    <section id="for-consumers" class="py-20 lg:py-32">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="text-center max-w-2xl mx-auto mb-16">
+                <p class="text-sm font-semibold text-primary uppercase tracking-wider mb-3">Capabilities</p>
+                <h2 class="text-3xl lg:text-4xl font-bold tracking-tight mb-4">Built for PI intake at scale.</h2>
+                <p class="text-lg text-muted-foreground">Every feature designed to capture more cases, qualify faster, and deliver higher-quality leads to firms.</p>
+            </div>
+
+            <div class="feature-grid">
+                <!-- Feature 1 -->
+                <div class="bg-card rounded-xl border border-border p-6 card-hover">
+                    <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
+                        <svg class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M2 12h20"/>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                        </svg>
+                    </div>
+                    <h3 class="font-semibold mb-2">Multilingual Intake</h3>
+                    <p class="text-sm text-muted-foreground">25+ languages supported. Spanish fluency with cultural context.</p>
+                </div>
+
+                <!-- Feature 2 -->
+                <div class="bg-card rounded-xl border border-border p-6 card-hover">
+                    <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
+                        <svg class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="23 7 16 12 23 17 23 7"/>
+                            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                        </svg>
+                    </div>
+                    <h3 class="font-semibold mb-2">Video Document Capture</h3>
+                    <p class="text-sm text-muted-foreground">Hold documents to the camera. AI parses in real time.</p>
+                </div>
+
+                <!-- Feature 3 -->
+                <div class="bg-card rounded-xl border border-border p-6 card-hover">
+                    <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
+                        <svg class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                            <polyline points="22 4 12 14.01 9 11.01"/>
+                        </svg>
+                    </div>
+                    <h3 class="font-semibold mb-2">Real-Time Qualification</h3>
+                    <p class="text-sm text-muted-foreground">Instant case strength scoring and jurisdiction matching.</p>
+                </div>
+
+                <!-- Feature 4 -->
+                <div class="bg-card rounded-xl border border-border p-6 card-hover">
+                    <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
+                        <svg class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                    </div>
+                    <h3 class="font-semibold mb-2">Document Parsing</h3>
+                    <p class="text-sm text-muted-foreground">Medical records, police reports, bills—automatically categorized.</p>
+                </div>
+
+                <!-- Feature 5 -->
+                <div class="bg-card rounded-xl border border-border p-6 card-hover">
+                    <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
+                        <svg class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+                        </svg>
+                    </div>
+                    <h3 class="font-semibold mb-2">Smart Matching</h3>
+                    <p class="text-sm text-muted-foreground">Jurisdiction, case type, and severity-based firm routing.</p>
+                </div>
+
+                <!-- Feature 6 -->
+                <div class="bg-card rounded-xl border border-border p-6 card-hover">
+                    <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
+                        <svg class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="1" x2="12" y2="23"/>
+                            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                        </svg>
+                    </div>
+                    <h3 class="font-semibold mb-2">Settlement Comparables</h3>
+                    <p class="text-sm text-muted-foreground">Moss integration retrieves relevant case settlements.</p>
+                </div>
+
+                <!-- Feature 7 -->
+                <div class="bg-card rounded-xl border border-border p-6 card-hover">
+                    <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
+                        <svg class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                        </svg>
+                    </div>
+                    <h3 class="font-semibold mb-2">Audit Trail</h3>
+                    <p class="text-sm text-muted-foreground">Complete compliance logging and session records.</p>
+                </div>
+
+                <!-- Feature 8 -->
+                <div class="bg-card rounded-xl border border-border p-6 card-hover">
+                    <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
+                        <svg class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            <line x1="3" y1="9" x2="21" y2="9"/>
+                            <line x1="9" y1="21" x2="9" y2="9"/>
+                        </svg>
+                    </div>
+                    <h3 class="font-semibold mb-2">Firm Case Brief</h3>
+                    <p class="text-sm text-muted-foreground">AI-generated summaries and co-pilot context panel.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Why Caseflow -->
+    <section id="for-firms" class="py-20 lg:py-32 bg-muted/30">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="grid lg:grid-cols-2 gap-16 items-center">
+                <!-- Left Content -->
+                <div>
+                    <p class="text-sm font-semibold text-primary uppercase tracking-wider mb-3">Why Caseflow</p>
+                    <h2 class="text-3xl lg:text-4xl font-bold tracking-tight mb-8">Stop drowning in unqualified leads.</h2>
+
+                    <!-- Problem -->
+                    <div class="mb-8">
+                        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-100 text-red-700 text-sm font-medium mb-4">
+                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="15" y1="9" x2="9" y2="15"/>
+                                <line x1="9" y1="9" x2="15" y2="15"/>
+                            </svg>
+                            The Problem
+                        </div>
+                        <ul class="space-y-3">
+                            <li class="flex items-start gap-3">
+                                <div class="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <svg class="w-3 h-3 text-red-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                        <line x1="18" y1="6" x2="6" y2="18"/>
+                                        <line x1="6" y1="6" x2="18" y2="18"/>
+                                    </svg>
+                                </div>
+                                <span class="text-muted-foreground">Consumers don't know if they have a case—until Caseflow explains it</span>
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <div class="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <svg class="w-3 h-3 text-red-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                        <line x1="18" y1="6" x2="6" y2="18"/>
+                                        <line x1="6" y1="6" x2="18" y2="18"/>
+                                    </svg>
+                                </div>
+                                <span class="text-muted-foreground">Firms waste hours on intake calls that go nowhere</span>
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <div class="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <svg class="w-3 h-3 text-red-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                        <line x1="18" y1="6" x2="6" y2="18"/>
+                                        <line x1="6" y1="6" x2="18" y2="18"/>
+                                    </svg>
+                                </div>
+                                <span class="text-muted-foreground">Critical evidence gets lost in voicemails, chats, and scattered uploads</span>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <!-- Solution -->
+                    <div>
+                        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-100 text-green-700 text-sm font-medium mb-4">
+                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            The Solution
+                        </div>
+                        <ul class="space-y-3">
+                            <li class="flex items-start gap-3">
+                                <div class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <svg class="w-3 h-3 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                </div>
+                                <span class="text-muted-foreground">Caseflow converts and organizes intake before the firm ever sees it</span>
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <div class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <svg class="w-3 h-3 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                </div>
+                                <span class="text-muted-foreground">Every case arrives pre-qualified, documented, and scored</span>
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <div class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <svg class="w-3 h-3 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                </div>
+                                <span class="text-muted-foreground">Firms only see leads that match their practice area and jurisdiction</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Right Visual -->
+                <div class="bg-card rounded-2xl border border-border p-8">
+                    <div class="space-y-4">
+                        <!-- Step 1 -->
+                        <div class="flex items-center gap-4 p-4 bg-muted/50 rounded-xl">
+                            <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                                <svg class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                                    <circle cx="12" cy="7" r="4"/>
+                                </svg>
+                            </div>
+                            <span class="font-medium">Consumer submits inquiry</span>
+                        </div>
+
+                        <!-- Arrow -->
+                        <div class="flex justify-center">
+                            <svg class="w-5 h-5 text-muted-foreground/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 5v14M19 12l-7 7-7-7"/>
+                            </svg>
+                        </div>
+
+                        <!-- Step 2 -->
+                        <div class="flex items-center gap-4 p-4 bg-muted/50 rounded-xl">
+                            <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                                <svg class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"/>
+                                </svg>
+                            </div>
+                            <span class="font-medium">AI qualifies and scores</span>
+                        </div>
+
+                        <!-- Arrow -->
+                        <div class="flex justify-center">
+                            <svg class="w-5 h-5 text-muted-foreground/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 5v14M19 12l-7 7-7-7"/>
+                            </svg>
+                        </div>
+
+                        <!-- Step 3 -->
+                        <div class="flex items-center gap-4 p-4 bg-muted/50 rounded-xl">
+                            <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                                <svg class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                    <circle cx="9" cy="7" r="4"/>
+                                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                </svg>
+                            </div>
+                            <span class="font-medium">Matched to vetted firms</span>
+                        </div>
+
+                        <!-- Arrow -->
+                        <div class="flex justify-center">
+                            <svg class="w-5 h-5 text-muted-foreground/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 5v14M19 12l-7 7-7-7"/>
+                            </svg>
+                        </div>
+
+                        <!-- Step 4 -->
+                        <div class="flex items-center gap-4 p-4 bg-green-50 rounded-xl border border-green-200">
+                            <div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
+                                <svg class="w-5 h-5 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                    <polyline points="22 4 12 14.01 9 11.01"/>
+                                </svg>
+                            </div>
+                            <span class="font-medium text-green-800">Case packet delivered</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonial -->
+    <section class="py-20 lg:py-32">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="max-w-3xl mx-auto text-center">
+                <div class="mb-8">
+                    <svg class="w-12 h-12 text-primary/20 mx-auto" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z"/>
+                    </svg>
+                </div>
+                <blockquote class="text-2xl lg:text-3xl font-medium leading-relaxed mb-8">
+                    Caseflow gives us better leads, better context, and less intake chaos. We went from spending 40% of intake time on unqualified calls to reviewing fully documented cases in minutes.
+                </blockquote>
+                <div class="flex items-center justify-center gap-4">
+                    <div class="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-primary-foreground font-semibold">
+                        JR
+                    </div>
+                    <div class="text-left">
+                        <p class="font-semibold">Jennifer Rodriguez</p>
+                        <p class="text-sm text-muted-foreground">Operations Director, Rodriguez & Associates PI</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing -->
+    <section id="pricing" class="py-20 lg:py-32 bg-muted/30">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="text-center max-w-2xl mx-auto mb-16">
+                <p class="text-sm font-semibold text-primary uppercase tracking-wider mb-3">Pricing</p>
+                <h2 class="text-3xl lg:text-4xl font-bold tracking-tight mb-4">Transparent pricing. No surprises.</h2>
+                <p class="text-lg text-muted-foreground">Choose the plan that fits your practice—consumer intake, firm access, or enterprise compliance.</p>
+            </div>
+
+            <div class="pricing-grid">
+                <!-- Intake Platform -->
+                <div class="bg-card rounded-2xl border border-border p-8 card-hover">
+                    <p class="text-sm font-semibold text-primary uppercase tracking-wider mb-2">For Consumers</p>
+                    <h3 class="text-xl font-semibold mb-2">Intake Platform</h3>
+                    <p class="text-muted-foreground text-sm mb-6">Add Caseflow intake to your website or refer clients directly.</p>
+                    <div class="mb-6">
+                        <span class="text-4xl font-bold">$299</span>
+                        <span class="text-muted-foreground">/month</span>
+                    </div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Unlimited consumer intakes</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>25+ language support</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Video & document capture</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Case strength scoring</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Basic audit trail</span>
+                        </li>
+                    </ul>
+                    <a href="#" class="block w-full py-2.5 text-center text-sm font-medium border border-border rounded-lg hover:bg-accent transition-colors">
+                        Start Free Trial
+                    </a>
+                </div>
+
+                <!-- Lead Access (Featured) -->
+                <div class="bg-card rounded-2xl border-2 border-primary p-8 relative card-hover">
+                    <div class="absolute -top-3 left-1/2 -translate-x-1/2">
+                        <span class="inline-flex px-3 py-1 text-xs font-semibold bg-primary text-primary-foreground rounded-full">Most Popular</span>
+                    </div>
+                    <p class="text-sm font-semibold text-primary uppercase tracking-wider mb-2">For Firms</p>
+                    <h3 class="text-xl font-semibold mb-2">Lead Access</h3>
+                    <p class="text-muted-foreground text-sm mb-6">Pay only for qualified leads that match your criteria.</p>
+                    <div class="mb-6">
+                        <span class="text-4xl font-bold">$75</span>
+                        <span class="text-muted-foreground">/qualified lead</span>
+                    </div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Pre-qualified case packets</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Jurisdiction & case-type filters</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Full document package</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Case strength & value estimates</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Co-pilot brief panel</span>
+                        </li>
+                    </ul>
+                    <a href="#" class="block w-full py-2.5 text-center text-sm font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors shadow-sm">
+                        Request Access
+                    </a>
+                </div>
+
+                <!-- Enterprise -->
+                <div class="bg-card rounded-2xl border border-border p-8 card-hover">
+                    <p class="text-sm font-semibold text-primary uppercase tracking-wider mb-2">Enterprise</p>
+                    <h3 class="text-xl font-semibold mb-2">Compliance Suite</h3>
+                    <p class="text-muted-foreground text-sm mb-6">Custom integrations, compliance controls, and dedicated support.</p>
+                    <div class="mb-6">
+                        <span class="text-4xl font-bold">Custom</span>
+                    </div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Everything in Lead Access</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Custom firm matching rules</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>SOC 2 compliant infrastructure</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>API & webhooks</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-sm">
+                            <svg class="w-4 h-4 text-green-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>Dedicated account manager</span>
+                        </li>
+                    </ul>
+                    <a href="#" class="block w-full py-2.5 text-center text-sm font-medium border border-border rounded-lg hover:bg-accent transition-colors">
+                        Contact Sales
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="py-20 lg:py-32">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="text-center max-w-2xl mx-auto">
+                <h2 class="text-3xl lg:text-4xl font-bold tracking-tight mb-4">Start matching the right clients to the right firms.</h2>
+                <p class="text-lg text-muted-foreground mb-10">Join the firms already using Caseflow to streamline intake, reduce waste, and win more cases.</p>
+                <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
+                    <a href="#" class="inline-flex items-center justify-center h-11 px-8 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-sm hover:shadow">
+                        Create Account
+                    </a>
+                    <a href="#" class="inline-flex items-center justify-center h-11 px-8 rounded-lg text-sm font-medium border border-border hover:bg-accent transition-colors">
+                        Request Demo
+                    </a>
+                </div>
+                <p class="text-sm text-muted-foreground">SOC 2 Type II certified · Full audit trail · HIPAA-ready infrastructure</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-12 border-t border-border bg-muted/30">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="grid md:grid-cols-5 gap-8 mb-12">
+                <!-- Brand -->
+                <div class="md:col-span-2">
+                    <a href="#" class="flex items-center gap-2.5 font-semibold text-lg mb-4">
+                        <div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+                            <svg class="w-4 h-4 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                                <path d="m9 15 2 2 4-4"/>
+                            </svg>
+                        </div>
+                        <span>Caseflow</span>
+                    </a>
+                    <p class="text-sm text-muted-foreground max-w-xs">AI-powered PI case intake and marketplace. Qualifying cases and connecting clients with firms that want them.</p>
+                </div>
+
+                <!-- Product -->
+                <div>
+                    <h4 class="font-semibold mb-4">Product</h4>
+                    <ul class="space-y-2">
+                        <li><a href="#features" class="text-sm text-muted-foreground hover:text-foreground transition-colors">Features</a></li>
+                        <li><a href="#how-it-works" class="text-sm text-muted-foreground hover:text-foreground transition-colors">How it Works</a></li>
+                        <li><a href="#pricing" class="text-sm text-muted-foreground hover:text-foreground transition-colors">Pricing</a></li>
+                        <li><a href="#" class="text-sm text-muted-foreground hover:text-foreground transition-colors">Integrations</a></li>
+                    </ul>
+                </div>
+
+                <!-- For -->
+                <div>
+                    <h4 class="font-semibold mb-4">For</h4>
+                    <ul class="space-y-2">
+                        <li><a href="#for-consumers" class="text-sm text-muted-foreground hover:text-foreground transition-colors">Consumers</a></li>
+                        <li><a href="#for-firms" class="text-sm text-muted-foreground hover:text-foreground transition-colors">Law Firms</a></li>
+                        <li><a href="#" class="text-sm text-muted-foreground hover:text-foreground transition-colors">Compliance</a></li>
+                        <li><a href="#" class="text-sm text-muted-foreground hover:text-foreground transition-colors">Enterprise</a></li>
+                    </ul>
+                </div>
+
+                <!-- Company -->
+                <div>
+                    <h4 class="font-semibold mb-4">Company</h4>
+                    <ul class="space-y-2">
+                        <li><a href="#" class="text-sm text-muted-foreground hover:text-foreground transition-colors">About</a></li>
+                        <li><a href="#" class="text-sm text-muted-foreground hover:text-foreground transition-colors">Blog</a></li>
+                        <li><a href="#" class="text-sm text-muted-foreground hover:text-foreground transition-colors">Careers</a></li>
+                        <li><a href="#" class="text-sm text-muted-foreground hover:text-foreground transition-colors">Contact</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="flex flex-col md:flex-row items-center justify-between pt-8 border-t border-border">
+                <p class="text-sm text-muted-foreground mb-4 md:mb-0">© 2026 Caseflow. All rights reserved.</p>
+                <div class="flex items-center gap-6">
+                    <a href="#" class="text-sm text-muted-foreground hover:text-foreground transition-colors">Privacy</a>
+                    <a href="#" class="text-sm text-muted-foreground hover:text-foreground transition-colors">Terms</a>
+                    <a href="#" class="text-sm text-muted-foreground hover:text-foreground transition-colors">Security</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Simple intersection observer for scroll animations
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('animate-fade-up');
+                    entry.target.style.opacity = '1';
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.card-hover').forEach(el => {
+            el.style.opacity = '0';
+            observer.observe(el);
+        });
+    </script>
+</body>
+</html>

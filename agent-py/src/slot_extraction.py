@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from bedrock_llm import parse_json_object
 from gateway import GATEWAY_MODEL, GatewayMetadata, chat, llm_configured
+from geo import state_from_location
 
 logger = logging.getLogger("slot_extraction")
 
@@ -71,9 +72,11 @@ def _rules_extract(transcript: str, language: str) -> list[ExtractedSlot]:
         field = "location" if "county" in value else "state"
         slots.append(ExtractedSlot(field, value.title(), 0.82, "rules"))
 
-    if re.search(r"\b(ca|california)\b", lower):
-        if not any(s.field_name == "state" for s in slots):
-            slots.append(ExtractedSlot("state", "CA", 0.8, "rules"))
+    # Resolve a bare city/county to its state ("Anaheim" → CA) so the agent can
+    # fire state-law retrieval before the caller names the state explicitly.
+    derived_state = state_from_location(text)
+    if derived_state and not any(s.field_name == "state" for s in slots):
+        slots.append(ExtractedSlot("state", derived_state, 0.8, "rules"))
 
     date_match = re.search(
         r"\b(\d{4}-\d{2}-\d{2}|june\s+\d{1,2}(?:,\s*\d{4})?|"

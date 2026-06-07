@@ -3,12 +3,12 @@ import contextlib
 import json
 import logging
 import os
-import re
 import textwrap
 import time
 import uuid
 
 from dotenv import load_dotenv
+from livekit import rtc
 from livekit.agents import (
     Agent,
     AgentServer,
@@ -41,6 +41,7 @@ from doc_thumbnail import make_redacted_thumbnail
 from document_generator import generate_intake_summary, generate_post_match_documents
 from gateway import _record_audit, gateway_configured, llm_configured
 from gateway import tts as gateway_tts
+from geo import state_from_location
 from llm_client import build_dialogue_llm, openai_direct_configured
 from metrics import MetricsTracker
 from minimax_voice import (
@@ -140,13 +141,6 @@ TRACKED_CASE_FIELDS = {
     "prior_representation",
 }
 
-# Two-letter state codes Caseflow covers, plus full-name aliases, for mapping a
-# parsed document location ("Orange County, CA") to a Moss jurisdiction filter.
-_STATE_NAMES = {
-    "california": "CA",
-    "texas": "TX",
-    "florida": "FL",
-}
 
 # Phrases that mark a caller's fault claim (used to remember the last one so the
 # discrepancy can be checked proactively after the police report is parsed).
@@ -165,18 +159,13 @@ _FAULT_CLAIM_PHRASES = (
 
 
 def _state_from_location(location: str) -> str | None:
-    """Best-effort two-letter state code from a free-text location string."""
-    text = (location or "").strip()
-    if not text:
-        return None
-    match = re.search(r",\s*([A-Z]{2})\b", text)
-    if match:
-        return match.group(1)
-    lowered = text.lower()
-    for name, code in _STATE_NAMES.items():
-        if name in lowered:
-            return code
-    return None
+    """Best-effort two-letter state code from a free-text location string.
+
+    Delegates to :mod:`geo`, which resolves a bare city or county ("Anaheim",
+    "Orange County") to its state — so retrieval can fire before the caller ever
+    names the state explicitly.
+    """
+    return state_from_location(location)
 
 
 ARIA_INSTRUCTIONS = textwrap.dedent(
@@ -203,9 +192,10 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
        what happened?" Never wait silently; never say "ask a question" or
        "I'm listening."
     2. Collect: accident type, date, state/jurisdiction, injuries, treatment so
-       far, fault as the caller perceives it, prior representation.
-    3. When documents are relevant, ask the caller to turn on their camera, hold the
-       paper steady close to the lens, keep it in frame, then call parse_document.
+       far, fault as the caller perceives it, prior representation. Let the caller
+       lead — follow their story, don't march through this like a checklist.
+    3. When a document would help (police report, ER discharge, insurance letter),
+       see "Camera and documents" below.
     4. After documents are parsed, audit the caller's claims (see "Consistency
        auditing" below). Ask clarifying questions gently, never accusing.
     5. Retrieve supporting knowledge from Moss as soon as you have the inputs it
@@ -215,12 +205,38 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
     8. Close by confirming a matched firm will reach out the next morning.
     9. Mock outbound: call_firm_with_brief then send_sms_confirmation.
 
+    # Conversation style
+
+    This is a conversation, not an interrogation. Speak the way an experienced,
+    calm intake specialist would on a hard day:
+    - One question per turn. Wait for the answer. Never stack questions.
+    - Acknowledge what they just said before moving on — briefly and varied, not
+      a robotic "I understand" every time.
+    - Mirror their pace. If they are upset or in pain, slow down and soften.
+    - Never re-ask something you already know from the case so far.
+    - Keep turns short (one to two sentences) so it feels like a real dialogue.
+    - You may volunteer a reassuring next step, but never lecture.
+
+    # Camera and documents
+
+    The caller is on live video. You are told when their camera turns on or off.
+    - When a document would help, first ask them to turn on their camera if it is
+      off ("Would you mind turning on your camera so I can take a look?"). The
+      camera turns on for them automatically when you ask.
+    - Once the camera is on, ask them to hold the document steady, close to the
+      lens, and keep it in frame. Then the document is parsed automatically — you
+      do not read it aloud or call any tool by name.
+    - If the camera is already on, skip straight to "go ahead and hold it up."
+    - Never ask for a document and a camera in the same breath as another
+      question — make it a single, calm request.
+
     # Retrieval tools
 
     You have four retrieval tools, all backed by Moss:
     - retrieve_state_law(state, topic) — pull jurisdictional PI law (SoL,
-      negligence rules, damage caps). Call this as soon as you know the caller's
-      state.
+      negligence rules, damage caps). Call this the moment you know the caller's
+      state — and a city or county is enough to infer it (Anaheim or Orange
+      County means California). You do not need them to name the state.
     - retrieve_comparables(accident_type, jurisdiction, severity, fault) — pull
       comparable settlement ranges. Call this once you have accident type and
       severity.
@@ -377,6 +393,9 @@ class Assistant(Agent):
         self._completeness_doc_fired = False
         self._match_docs_fired = False
         self._moss_after_first_turn = False
+        # Live camera on/off state, learned from LiveKit room track events so the
+        # agent knows whether it can already see the caller before asking for a doc.
+        self._camera_on = False
         # Discrepancy + citation-trail state (Gap 5 / Enh F).
         self._discrepancy_surfaced = False
         self._last_fault_claim = ""
@@ -823,6 +842,15 @@ class Assistant(Agent):
             {"moss_retrieval": event, "moss_retrievals": retrievals},
         )
         await self._publish_moss_context_event(event)
+
+    async def _set_camera_state(self, on: bool) -> None:
+        """Record the caller's camera on/off state and surface it to the dashboard."""
+        if self._camera_on == on:
+            return
+        self._camera_on = on
+        logger.info("CASEFLOW_CAMERA %s", "on" if on else "off")
+        with contextlib.suppress(Exception):
+            await self._update_case("camera_state", {"camera_on": on})
 
     async def _broadcast_voice_bridge(self, *, language: str, language_changed: bool) -> None:
         """Surface Deepgram STT → MiniMax TTS routing on the firm dashboard."""
@@ -1444,6 +1472,32 @@ async def my_agent(ctx: JobContext):
         ctx.room,
         on_frame=assistant._on_document_frame,
     )
+
+    # Track the caller's camera on/off state from room events so the agent knows
+    # whether it can already see them before asking for a document. Handlers take
+    # *args because LiveKit's track event signatures differ (some pass the
+    # publication first, some the participant); we just find the camera publication.
+    def _camera_publication(args) -> object | None:
+        for item in args:
+            if getattr(item, "source", None) == rtc.TrackSource.SOURCE_CAMERA:
+                return item
+        return None
+
+    def _on_camera_active(*args) -> None:
+        pub = _camera_publication(args)
+        if pub is not None:
+            assistant._spawn(
+                assistant._set_camera_state(not getattr(pub, "muted", False))
+            )
+
+    def _on_camera_inactive(*args) -> None:
+        if _camera_publication(args) is not None:
+            assistant._spawn(assistant._set_camera_state(False))
+
+    for _event in ("track_published", "track_subscribed", "track_unmuted"):
+        ctx.room.on(_event, _on_camera_active)
+    for _event in ("track_unpublished", "track_unsubscribed", "track_muted"):
+        ctx.room.on(_event, _on_camera_inactive)
 
     @session.on("user_input_transcribed")
     def _on_user_transcribed(ev: UserInputTranscribedEvent) -> None:

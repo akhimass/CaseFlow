@@ -36,6 +36,7 @@ from livekit.agents import (
     function_tool,
     room_io,
 )
+from livekit.agents.llm.chat_context import Instructions
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from moss import MossClient
 
@@ -63,6 +64,28 @@ BRIEFING_MODEL = os.getenv(
     "FIRM_BRIEFING_MODEL", os.getenv("GATEWAY_MODEL", "gpt-4.1-mini")
 )
 
+
+FIRM_HOME_INSTRUCTIONS = textwrap.dedent(
+    """\
+    You are Caseflowy Counsel on the firm's home dashboard — the marketplace
+    command center for a personal-injury law firm. You are speaking to an
+    attorney who just signed in.
+
+    Your job on the home screen:
+    - Welcome them briefly and orient them to the dashboard.
+    - Explain that matched leads appear in the sidebar; they can click one to
+      open the full intelligence dossier, or open a voice briefing on any lead.
+    - Answer questions about how the marketplace works, what Moss retrieval
+      provides, or what to do while waiting for new intakes.
+    - Do NOT brief a specific case unless they name one and you have context.
+    - Never invent case facts, claimant names, or settlement amounts.
+
+    Voice rules:
+    - Plain spoken English. No markdown, bullets, or emojis.
+    - Two or three sentences per turn unless they ask for more.
+    - Calm, confident colleague tone — never speak to a claimant.
+    """
+)
 
 FIRM_COUNSEL_INSTRUCTIONS = textwrap.dedent(
     """\
@@ -447,9 +470,80 @@ class _FirmVoiceState(VoiceSessionState):
         return FIRM_VOICE_ID
 
 
+class FirmHomeAssistant(Agent):
+    """Ambient counsel on the firm home dashboard — welcome + pipeline Q&A."""
+
+    def __init__(
+        self,
+        *,
+        firm_id: str | None,
+        firm_name: str | None,
+        redaction_session: RedactionSession,
+    ) -> None:
+        inner_llm = build_dialogue_llm(case_id=firm_id or "firm-home")
+        extra = ""
+        if firm_name:
+            extra = f"\n\n# Signed-in firm\n{firm_name}"
+        super().__init__(
+            instructions=FIRM_HOME_INSTRUCTIONS + extra,
+            llm=RedactingLLM(inner=inner_llm, session=redaction_session),
+        )
+        self._firm_id = firm_id
+
+    async def on_enter(self) -> None:
+        if self.session is None:
+            return
+        await self.session.generate_reply(
+            instructions=Instructions(
+                audio=(
+                    "The attorney just opened their Caseflowy firm home dashboard. "
+                    "Greet them warmly in one or two short sentences. Tell them matched "
+                    "leads are in the sidebar, they can open any lead for the full dossier "
+                    "or start a voice briefing, and they can ask you questions about the "
+                    "pipeline. Do not brief a specific case yet."
+                ),
+            ),
+        )
+
+
 # --------------------------------------------------------------------------- #
-# Session entrypoint
+# Session entrypoints
 # --------------------------------------------------------------------------- #
+async def run_firm_home_session(
+    ctx: JobContext, *, firm_id: str | None, firm_name: str | None = None
+) -> None:
+    """Firm home dashboard — ambient counsel without auto-opening a demo case."""
+    ctx.log_context_fields = {"room": ctx.room.name, "mode": "firm_home"}
+    logger.info("CASEFLOW_FIRM_HOME start firm_id=%s", firm_id)
+
+    redaction_session = RedactionSession()
+    bind_redaction_session(redaction_session)
+
+    voice_state = _FirmVoiceState()
+    voice_state.language_confirmed = True
+    firm_tts, _inner = build_caseflow_voice(state=voice_state)
+
+    session = AgentSession(
+        stt=LoggingSTT(state=voice_state, tts=firm_tts),
+        tts=firm_tts,
+        turn_detection=MultilingualModel(),
+        vad=ctx.proc.userdata["vad"],
+        preemptive_generation=True,
+    )
+
+    assistant = FirmHomeAssistant(
+        firm_id=firm_id,
+        firm_name=firm_name,
+        redaction_session=redaction_session,
+    )
+
+    await session.start(
+        agent=assistant,
+        room=ctx.room,
+        room_options=room_io.RoomOptions(),
+    )
+
+
 async def run_firm_briefing_session(
     ctx: JobContext, *, case_id: str, firm_id: str | None
 ) -> None:

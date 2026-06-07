@@ -63,3 +63,18 @@ export function Wordmark({ className }: { className?: string }) {
     </span>
   );
 }
+
+/** Compact wordmark for firm dashboard sidebar — icon + text sized to fit the nav rail. */
+export function FirmSidebarWordmark({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn('inline-flex min-w-0 items-center gap-2', className)}
+      aria-label="Caseflowy"
+    >
+      <CaseflowIcon className="size-7 shrink-0" />
+      <span className="truncate text-sm leading-none font-semibold tracking-tight lowercase">
+        caseflowy
+      </span>
+    </span>
+  );
+}

@@ -3,19 +3,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { ArrowLeftIcon } from '@phosphor-icons/react/dist/ssr';
 import { AwsArtifactsPanel } from '@/components/firm/aws-artifacts-panel';
 import { CaseflowDecisionCard } from '@/components/firm/caseflow-decision-card';
+import { FirmCasesView } from '@/components/firm/dashboard/firm-cases-view';
+import {
+  FirmDashboardShell,
+  type FirmDashboardView,
+} from '@/components/firm/dashboard/firm-dashboard-shell';
+import { FirmHomeDashboard } from '@/components/firm/dashboard/firm-home';
 import { FirmKpiStrip } from '@/components/firm/dashboard/firm-kpis';
 import { GuardrailsDashboard } from '@/components/firm/dashboard/guardrails';
 import { LeadHeader } from '@/components/firm/dashboard/lead-header';
 import { MossOverview } from '@/components/firm/dashboard/moss-overview';
 import { TrueFoundryPrivacyDashboard } from '@/components/firm/dashboard/truefoundry-privacy';
-import {
-  SectionHeader,
-  estimatedValue,
-  formatUsd,
-  strengthTone,
-} from '@/components/firm/dashboard/viz';
+import { SectionHeader } from '@/components/firm/dashboard/viz';
 import { DocumentsPanel } from '@/components/firm/documents-panel';
 import { LiveTranscriptPanel } from '@/components/firm/live-transcript-panel';
 import { MossEvidenceTrail } from '@/components/firm/moss-evidence-trail';
@@ -30,17 +32,20 @@ function CaseDetail({
   record,
   revealed,
   onReveal,
+  onBack,
 }: {
   record: CaseRecord;
   revealed: boolean;
   onReveal: () => void;
+  onBack: () => void;
 }) {
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+        <ArrowLeftIcon weight="bold" /> Back to cases
+      </Button>
       <LeadHeader record={record} />
-
       <GuardrailsDashboard record={record} />
-
       <div>
         <SectionHeader
           eyebrow="Moss · retrieval"
@@ -54,7 +59,6 @@ function CaseDetail({
           <MossEvidenceTrail record={record} />
         </div>
       </div>
-
       <div>
         <SectionHeader
           eyebrow="Unsiloed · documents"
@@ -66,9 +70,7 @@ function CaseDetail({
           <DocumentsPanel record={record} />
         </div>
       </div>
-
       <TrueFoundryPrivacyDashboard record={record} revealed={revealed} onReveal={onReveal} />
-
       <div>
         <SectionHeader
           eyebrow="Conversation"
@@ -80,22 +82,32 @@ function CaseDetail({
           <VoiceBridgePanel record={record} />
         </div>
       </div>
-
       <AwsArtifactsPanel record={record} />
     </div>
   );
 }
 
-function prettyAccident(value: unknown): string {
-  return String(value ?? '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+function FirmInfoPanel({ session }: { session: FirmSession }) {
+  return (
+    <div className="border-border bg-background max-w-lg space-y-3 rounded-xl border p-6">
+      <h2 className="text-lg font-semibold">{session.firm_name}</h2>
+      {session.city ? <p className="text-muted-foreground text-sm">{session.city}</p> : null}
+      <p className="text-muted-foreground text-sm leading-relaxed">
+        Matched leads from live client intakes appear in Cases as soon as Moss routes them to your
+        firm. Open Home for Caseflowy Counsel, or start a voice briefing from any qualified lead.
+      </p>
+      <Button asChild variant="outline" size="sm">
+        <Link href="/firm/login">Switch firm</Link>
+      </Button>
+    </div>
+  );
 }
 
 export default function FirmPage() {
   const router = useRouter();
   const { cases, connected } = useCaseflowEvents();
   const [session, setSession] = useState<FirmSession | null | undefined>(undefined);
+  const [view, setView] = useState<FirmDashboardView>('home');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
   const [autoBrief, setAutoBrief] = useState(false);
@@ -121,13 +133,10 @@ export default function FirmPage() {
   }, [cases, session]);
 
   const selected = useMemo(
-    () => firmCases.find((c) => c.case_id === selectedId) ?? firmCases[0],
+    () => (selectedId ? firmCases.find((c) => c.case_id === selectedId) : undefined),
     [firmCases, selectedId]
   );
 
-  // Auto-brief: when a genuinely new lead arrives (after the initial snapshot),
-  // jump straight into the voice briefing. Seeded once so we don't redirect on
-  // first load.
   const seenCaseIds = useRef<Set<string> | null>(null);
   useEffect(() => {
     const ids = firmCases.map((c) => String(c.case_id));
@@ -142,6 +151,11 @@ export default function FirmPage() {
     }
   }, [firmCases, autoBrief, router]);
 
+  function openCase(caseId: string) {
+    setSelectedId(caseId);
+    setView('cases');
+  }
+
   if (session === undefined) {
     return (
       <div className="text-muted-foreground flex min-h-svh items-center justify-center text-sm">
@@ -153,129 +167,50 @@ export default function FirmPage() {
   if (!session) return null;
 
   return (
-    <div className="bg-muted/30 min-h-svh">
-      <header className="border-border bg-background border-b px-6 py-4">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+    <FirmDashboardShell
+      session={session}
+      connected={connected}
+      view={selectedId ? 'cases' : view}
+      onViewChange={(next) => {
+        setView(next);
+        if (next !== 'cases') setSelectedId(null);
+      }}
+      autoBrief={autoBrief}
+      onToggleAutoBrief={() => {
+        const next = !autoBrief;
+        setAutoBrief(next);
+        localStorage.setItem('caseflow_auto_brief', next ? 'on' : 'off');
+      }}
+    >
+      {selected ? (
+        <CaseDetail
+          record={selected}
+          revealed={revealedIds.has(String(selected.case_id))}
+          onReveal={async () => {
+            const id = String(selected.case_id);
+            await fetch(`/api/cases/${id}/reveal`, { method: 'POST' });
+            setRevealedIds((prev) => new Set(prev).add(id));
+          }}
+          onBack={() => setSelectedId(null)}
+        />
+      ) : view === 'home' ? (
+        <FirmHomeDashboard session={session} firmCases={firmCases} onSelectCase={openCase} />
+      ) : view === 'cases' ? (
+        <FirmCasesView firmCases={firmCases} onSelectCase={openCase} />
+      ) : view === 'overview' ? (
+        <div className="space-y-6">
           <div>
-            <Link href="/" className="text-lg font-semibold tracking-tight">
-              Caseflowy <span className="text-muted-foreground font-normal">Intelligence</span>
-            </Link>
-            <p className="text-muted-foreground text-sm">
-              {session.firm_name}
-              {session.city ? ` · ${session.city}` : ''}
+            <h1 className="text-xl font-semibold tracking-tight">Overview</h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Pipeline snapshot for {session.firm_name}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="border-border flex items-center gap-1.5 rounded-full border px-2.5 py-1">
-              <span
-                className={`size-2 rounded-full ${connected ? 'animate-pulse bg-emerald-500' : 'bg-amber-500'}`}
-              />
-              <span className="text-muted-foreground text-xs font-medium">
-                {connected ? 'Live' : 'Reconnecting…'}
-              </span>
-            </span>
-            <Button
-              variant={autoBrief ? 'default' : 'outline'}
-              size="sm"
-              aria-pressed={autoBrief}
-              onClick={() => {
-                const next = !autoBrief;
-                setAutoBrief(next);
-                localStorage.setItem('caseflow_auto_brief', next ? 'on' : 'off');
-              }}
-            >
-              {autoBrief ? 'Auto-brief: On' : 'Auto-brief: Off'}
-            </Button>
-            <Button asChild variant="outline" size="sm">
-              <Link href="/admin/metrics">Metrics</Link>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={async () => {
-                await fetch('/api/firm/logout', { method: 'POST' });
-                router.replace('/firm/login');
-              }}
-            >
-              Sign out
-            </Button>
-          </div>
+          {firmCases.length > 0 ? <FirmKpiStrip cases={firmCases} /> : null}
+          <FirmCasesView firmCases={firmCases} onSelectCase={openCase} />
         </div>
-      </header>
-
-      <div className="mx-auto max-w-7xl px-6 py-6">
-        {firmCases.length > 0 ? <FirmKpiStrip cases={firmCases} /> : null}
-
-        <div className="mt-6 grid gap-6 md:grid-cols-[300px_1fr]">
-          <aside className="md:sticky md:top-6 md:self-start">
-            <div className="border-border bg-background rounded-2xl border p-4">
-              <h2 className="text-muted-foreground mb-3 text-xs font-semibold tracking-wide uppercase">
-                Incoming cases
-              </h2>
-              {firmCases.length === 0 ? (
-                <p className="text-muted-foreground text-sm">
-                  No matched intakes yet. Open /intake/consent in another tab, enter San Francisco
-                  as your location, and complete a call.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {firmCases.map((c) => {
-                    const score = Number(c.score ?? c.case_strength ?? 0);
-                    const tone = strengthTone(score);
-                    const active = selected?.case_id === c.case_id;
-                    return (
-                      <li key={String(c.case_id)}>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedId(String(c.case_id))}
-                          className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${
-                            active
-                              ? 'border-primary bg-primary/5'
-                              : 'border-border hover:bg-muted/50'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate font-medium">
-                              {String(c.caller_id ?? c.case_id)}
-                            </span>
-                            <span className={`text-sm font-semibold tabular-nums ${tone.text}`}>
-                              {score}
-                            </span>
-                          </div>
-                          <div className="text-muted-foreground mt-0.5 flex items-center justify-between gap-2 text-xs">
-                            <span className="truncate">
-                              {prettyAccident(c.accident_type) || 'Intake'}
-                            </span>
-                            <span className="tabular-nums">{formatUsd(estimatedValue(c))}</span>
-                          </div>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          </aside>
-
-          <main>
-            {selected ? (
-              <CaseDetail
-                record={selected}
-                revealed={revealedIds.has(String(selected.case_id))}
-                onReveal={async () => {
-                  const id = String(selected.case_id);
-                  await fetch(`/api/cases/${id}/reveal`, { method: 'POST' });
-                  setRevealedIds((prev) => new Set(prev).add(id));
-                }}
-              />
-            ) : (
-              <div className="border-border bg-background text-muted-foreground rounded-2xl border border-dashed p-12 text-center">
-                Select a case to view its full intelligence dashboard.
-              </div>
-            )}
-          </main>
-        </div>
-      </div>
-    </div>
+      ) : view === 'firm' ? (
+        <FirmInfoPanel session={session} />
+      ) : null}
+    </FirmDashboardShell>
   );
 }

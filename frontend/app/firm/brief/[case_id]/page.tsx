@@ -11,9 +11,16 @@ import { StartAudioButton } from '@/components/agents-ui/start-audio-button';
 import { BriefingRoom } from '@/components/firm/briefing/briefing-room';
 import { Toaster } from '@/components/ui/sonner';
 import { type CaseRecord, useCaseflowEvents } from '@/hooks/useCaseflowEvents';
+import { useFirmAgentAutoConnect, useFirmAgentErrors } from '@/hooks/useFirmAgentSession';
 import { type FirmSession } from '@/lib/firm-session';
 
 const AGENT_NAME = APP_CONFIG_DEFAULTS.agentName ?? 'caseflow-agent';
+
+function FirmBriefAgentSetup() {
+  useFirmAgentAutoConnect();
+  useFirmAgentErrors(AGENT_NAME);
+  return null;
+}
 
 export default function FirmBriefPage() {
   const router = useRouter();
@@ -121,6 +128,7 @@ function BriefSession({
 
   return (
     <AgentSessionProvider session={liveSession} muted={paused}>
+      <FirmBriefAgentSetup />
       <BriefingRoom
         record={record}
         caseId={caseId}

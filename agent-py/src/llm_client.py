@@ -174,13 +174,18 @@ class TrueFoundryLLM(llm.LLM):
 
         if fallback_llm is None:
             fallback_llm = OpenAIChatLLM(
-                api_key=os.getenv("OPENAI_API_KEY", ""),
-                model=os.getenv("OPENAI_FALLBACK_MODEL", "gpt-4o"),
+                api_key=_get_env("OPENAI_API_KEY", "TRUEFOUNDRY_API_KEY"),
+                model=_get_env("OPENAI_MODEL", "TRUEFOUNDRY_MODEL", default="openai/gpt-4.1-mini"),
                 provider="openai",
                 default_temperature=self._primary_temperature,
                 case_id=case_id,
                 max_tokens=self._max_tokens,
                 label="openai-fallback",
+                base_url=_get_env(
+                    "OPENAI_BASE_URL",
+                    "TRUEFOUNDRY_GATEWAY_URL",
+                    default="https://casefloww.truefoundry.cloud/api/llm/openai",
+                ),
             )
 
         self._primary_llm = primary_llm

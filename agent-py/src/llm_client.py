@@ -144,7 +144,7 @@ class TrueFoundryLLM(llm.LLM):
         *,
         case_id: str | None = None,
         primary_llm: llm.LLM | None = None,
-        fallback_llm: llm.LLM | None = None,
+        fallback_llm: llm.LLM | None = None,  # kept for API compat, unused
     ) -> None:
         super().__init__()
         self._case_id = case_id
@@ -156,27 +156,28 @@ class TrueFoundryLLM(llm.LLM):
         if primary_llm is None:
             primary_llm = OpenAIChatLLM(
                 api_key=_get_env("OPENAI_API_KEY", "TRUEFOUNDRY_API_KEY"),
-                model=_get_env("OPENAI_MODEL", "TRUEFOUNDRY_MODEL", default="openai/gpt-4.1-mini"),
+                model=_get_env("OPENAI_MODEL", "TRUEFOUNDRY_MODEL", default="openai/gpt-4o-mini"),
                 provider="truefoundry",
                 default_temperature=self._primary_temperature,
                 case_id=case_id,
                 max_tokens=self._max_tokens,
-                label="truefoundry",
+                label="truefoundry-primary",
                 base_url=_get_env(
                     "OPENAI_BASE_URL",
-                    default="https://gateway.truefoundry.ai/openai",
+                    "TRUEFOUNDRY_GATEWAY_URL",
+                    default="https://casefloww.truefoundry.cloud/api/llm/openai",
                 ),
             )
 
         if fallback_llm is None:
             fallback_llm = OpenAIChatLLM(
                 api_key=_get_env("OPENAI_API_KEY", "TRUEFOUNDRY_API_KEY"),
-                model=_get_env("OPENAI_MODEL", "TRUEFOUNDRY_MODEL", default="openai/gpt-4.1-mini"),
-                provider="openai",
+                model=_get_env("TRUEFOUNDRY_FALLBACK_MODEL", default="aws-bedrock/deepseek.v3-v1-0"),
+                provider="truefoundry",
                 default_temperature=self._primary_temperature,
                 case_id=case_id,
                 max_tokens=self._max_tokens,
-                label="openai-fallback",
+                label="truefoundry-bedrock-fallback",
                 base_url=_get_env(
                     "OPENAI_BASE_URL",
                     "TRUEFOUNDRY_GATEWAY_URL",

@@ -73,12 +73,13 @@ FIRM_HOME_INSTRUCTIONS = textwrap.dedent(
 
     Your job on the home screen:
     - Welcome them briefly and orient them to the dashboard.
-    - Explain that matched leads are listed in the left sidebar under Matched
-      leads; the Cases tab shows the full table; the conversation transcript
-      appears on the right while you speak.
-    - They can open any lead for the full dossier or start a voice briefing.
-    - Answer questions about how the marketplace works, what Moss retrieval
-      provides, or what to do while waiting for new intakes.
+    - Explain that matched leads are in the cases hub on the left; they can
+      open any lead for the full dossier or start a voice briefing; your
+      conversation transcript is on the right while you speak.
+    - If they ask how sources, briefs, or the marketplace work, explain in
+      plain terms without naming specific vendors or tools — invite them to ask
+      you anything about how we gather sources and case briefs.
+    - Answer questions about what to do while waiting for new intakes.
     - Do NOT brief a specific case unless they name one and you have context.
     - Never invent case facts, claimant names, or settlement amounts.
 
@@ -500,9 +501,10 @@ class FirmHomeAssistant(Agent):
                 audio=(
                     "The attorney just opened their Caseflowy firm home dashboard. "
                     "Greet them warmly in one or two short sentences. Tell them matched "
-                    "leads are in the left sidebar, the transcript is on the right, and "
-                    "they can open Cases for the full table or ask you questions about the "
-                    "pipeline. Do not brief a specific case yet."
+                    "leads are in the cases hub on the left, your conversation is on the "
+                    "right, and they can open any lead or ask you how we gather sources "
+                    "and case briefs. Do not name specific vendors. Do not brief a "
+                    "specific case yet."
                 ),
             ),
         )

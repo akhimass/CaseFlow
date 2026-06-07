@@ -29,9 +29,10 @@ export function FirmCounselControls({
 
   if (!session.isConnected) {
     return (
-      <div className={cn('flex justify-center', className)}>
+      <div className={cn('w-full', className)}>
         <Button
           size="lg"
+          className="w-full"
           onClick={() =>
             void session.start({
               tracks: { microphone: { enabled: false } },
@@ -45,7 +46,7 @@ export function FirmCounselControls({
   }
 
   return (
-    <div className={cn('flex flex-wrap items-center justify-center gap-2', className)}>
+    <div className={cn('flex w-full flex-wrap items-center justify-center gap-2', className)}>
       {extraControls}
       <AgentControlBar
         variant="livekit"

@@ -94,8 +94,8 @@ function FirmInfoPanel({ session }: { session: FirmSession }) {
       <h2 className="text-lg font-semibold">{session.firm_name}</h2>
       {session.city ? <p className="text-muted-foreground text-sm">{session.city}</p> : null}
       <p className="text-muted-foreground text-sm leading-relaxed">
-        Matched leads appear in the left sidebar and in the Cases table. Home is Caseflowy Counsel
-        with a live transcript — open any lead for the full dossier or a voice briefing.
+        Home is your cases hub with Caseflowy Counsel on the right — open any matched lead for the
+        full dossier or a voice briefing.
       </p>
       <Button asChild variant="outline" size="sm">
         <Link href="/firm/login">Switch firm</Link>
@@ -170,7 +170,6 @@ export default function FirmPage() {
 
   function openCase(caseId: string) {
     setSelectedId(caseId);
-    setView('cases');
   }
 
   if (session === undefined) {
@@ -187,10 +186,10 @@ export default function FirmPage() {
     <FirmDashboardShell
       session={session}
       connected={connected}
-      view={selectedId ? 'cases' : view}
+      view={view}
       onViewChange={(next) => {
         setView(next);
-        if (next !== 'cases') setSelectedId(null);
+        setSelectedId(null);
       }}
       autoBrief={autoBrief}
       onToggleAutoBrief={() => {
@@ -198,9 +197,6 @@ export default function FirmPage() {
         setAutoBrief(next);
         localStorage.setItem('caseflow_auto_brief', next ? 'on' : 'off');
       }}
-      firmCases={firmCases}
-      selectedCaseId={selectedId}
-      onSelectCase={openCase}
     >
       {selected ? (
         <CaseDetail
@@ -214,11 +210,9 @@ export default function FirmPage() {
           onBack={() => setSelectedId(null)}
         />
       ) : view === 'home' ? (
-        <FirmHomeDashboard session={session} />
+        <FirmHomeDashboard session={session} firmCases={firmCases} onSelectCase={openCase} />
       ) : view === 'metrics' ? (
         <FirmMetricsPanel />
-      ) : view === 'cases' ? (
-        <FirmCasesView firmCases={firmCases} onSelectCase={openCase} />
       ) : view === 'overview' ? (
         <div className="space-y-6">
           <div>

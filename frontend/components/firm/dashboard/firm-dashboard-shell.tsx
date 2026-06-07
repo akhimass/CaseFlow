@@ -2,19 +2,16 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FirmSidebarCases } from '@/components/firm/dashboard/firm-sidebar-cases';
 import { FirmSidebarWordmark } from '@/components/marketing/logo';
 import { Button } from '@/components/ui/button';
-import { type CaseRecord } from '@/hooks/useCaseflowEvents';
 import { type FirmSession } from '@/lib/firm-session';
 import { cn } from '@/lib/shadcn/utils';
 
-export type FirmDashboardView = 'home' | 'metrics' | 'cases' | 'firm' | 'overview';
+export type FirmDashboardView = 'home' | 'metrics' | 'firm' | 'overview';
 
 const NAV: { id: FirmDashboardView; label: string }[] = [
   { id: 'home', label: 'Home' },
   { id: 'metrics', label: 'Metrics' },
-  { id: 'cases', label: 'Cases' },
   { id: 'firm', label: 'Firm' },
   { id: 'overview', label: 'Overview' },
 ];
@@ -26,9 +23,6 @@ export function FirmDashboardShell({
   onViewChange,
   autoBrief,
   onToggleAutoBrief,
-  firmCases,
-  selectedCaseId,
-  onSelectCase,
   children,
 }: {
   session: FirmSession;
@@ -37,9 +31,6 @@ export function FirmDashboardShell({
   onViewChange: (view: FirmDashboardView) => void;
   autoBrief: boolean;
   onToggleAutoBrief: () => void;
-  firmCases: CaseRecord[];
-  selectedCaseId: string | null;
-  onSelectCase: (caseId: string) => void;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -80,12 +71,6 @@ export function FirmDashboardShell({
               </button>
             );
           })}
-          <FirmSidebarCases
-            firmCases={firmCases}
-            selectedCaseId={selectedCaseId}
-            onSelectCase={onSelectCase}
-            onOpenCasesTab={() => onViewChange('cases')}
-          />
         </nav>
         <div className="border-border mt-auto space-y-2 border-t p-3">
           <div className="text-muted-foreground flex items-center gap-2 px-1 text-xs">

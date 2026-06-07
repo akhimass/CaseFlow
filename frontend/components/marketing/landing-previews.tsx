@@ -8,7 +8,7 @@ import { cn } from '@/lib/shadcn/utils';
 const TABLE_COLS =
   'grid-cols-[minmax(7rem,1.15fr)_minmax(5rem,0.85fr)_minmax(5.5rem,0.9fr)_2.5rem_minmax(3.5rem,0.65fr)_minmax(5.5rem,0.85fr)]';
 
-const SIDEBAR_ITEMS = ['Home', 'Metrics', 'Cases', 'Firm', 'Overview'] as const;
+const SIDEBAR_ITEMS = ['Home', 'Metrics', 'Firm', 'Overview'] as const;
 
 const AGENT_TRANSCRIPT = [
   {
@@ -153,7 +153,7 @@ export function FirmDashboardPreview({ className }: { className?: string }) {
                 key={item}
                 className={cn(
                   'mb-1 rounded-md px-2 py-1.5 text-sm',
-                  item === 'Cases'
+                  item === 'Home'
                     ? 'bg-accent text-accent-foreground font-medium'
                     : 'text-muted-foreground'
                 )}

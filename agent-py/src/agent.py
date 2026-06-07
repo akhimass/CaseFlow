@@ -406,6 +406,9 @@ class Assistant(Agent):
         self._completeness_doc_fired = False
         self._match_docs_fired = False
         self._moss_after_first_turn = False
+        # Real LLM time-to-first-token for the last turn, fed from LiveKit metrics
+        # so the TrueFoundry audit trail logs actual latency (not a 0 stub).
+        self._last_llm_ttft_ms = 0.0
         # Discrepancy + citation-trail state (Gap 5 / Enh F).
         self._discrepancy_surfaced = False
         self._last_fault_claim = ""
@@ -1023,7 +1026,7 @@ class Assistant(Agent):
                 "caller_id": self._user_id,
                 "input_chars": len(self._last_user_utterance),
                 "output_chars": len(text),
-                "latency_ms": 0,
+                "latency_ms": round(self._last_llm_ttft_ms, 1),
                 "failover": False,
                 "timestamp": time.time(),
             }
@@ -1742,6 +1745,7 @@ async def my_agent(ctx: JobContext):
         elif isinstance(m, lk_metrics.LLMMetrics):
             if not m.cancelled and m.ttft and m.ttft > 0:
                 slot["llm"] = m.ttft * 1000.0
+                assistant._last_llm_ttft_ms = m.ttft * 1000.0
         elif isinstance(m, lk_metrics.TTSMetrics):
             if m.cancelled or not m.ttfb:
                 return

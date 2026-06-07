@@ -142,16 +142,36 @@ def normalize_lang(code: str | None) -> CallerLanguage | None:
     return None
 
 
-def detect_language_from_text(text: str) -> CallerLanguage | None:
+_ES_MARKERS = (
+    "hola", "gracias", "accidente", "abogado", "seguro", "me chocaron", "choque",
+    "señor", "señora", "dolor", "cuello", "espalda", "policía", "reporte", "carro",
+    "el ", "la ", "que ", "por ", "una ", "estoy", "tengo", "fue ",
+)
+_EN_MARKERS = (
+    "the ", "and ", "i ", "my ", "was ", "rear", "accident", "police", "report",
+    "neck", "back", "pain", "insurance", "lawyer", "hit ", "car ", "fault",
+)
+
+
+def _language_scores(text: str) -> tuple[int, int]:
     lower = text.lower()
-    if re.search(r"[áéíóúñ¿¡]", lower) or any(
-        w in lower
-        for w in ("hola", "gracias", "accidente", "abogado", "seguro", "me chocaron")
-    ):
+    es = len(re.findall(r"[áéíóúñ¿¡]", lower)) + sum(1 for w in _ES_MARKERS if w in lower)
+    en = sum(1 for w in _EN_MARKERS if w in lower)
+    return es, en
+
+
+def detect_language_from_text(text: str) -> CallerLanguage | None:
+    """Dominant language by marker count. Returns None when it's a tie/mixed
+    (code-switching) so the caller keeps their current language instead of
+    whipsawing the voice on a single mixed utterance."""
+    es, en = _language_scores(text)
+    if es == 0 and en == 0:
+        return "en" if re.search(r"[a-z]", text.lower()) else None
+    if es > en:
         return "es"
-    if re.search(r"[a-z]", lower):
+    if en > es:
         return "en"
-    return None
+    return None  # mixed / ambiguous → caller keeps current language
 
 
 def resolve_caller_language(

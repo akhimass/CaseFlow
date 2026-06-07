@@ -1,62 +1,173 @@
 [
   {
+    "firm_id": "orange_coast",
+    "name": "Orange Coast Injury Partners",
+    "phone": "(714) 555-0110",
+    "test_phone": "+17145550110",
+    "jurisdictions": [
+      "CA"
+    ],
+    "languages": [
+      "en",
+      "es"
+    ],
+    "specialties": [
+      "auto",
+      "rear_end",
+      "mva",
+      "general_pi"
+    ],
+    "min_strength": 30,
+    "location": "Orange County, CA",
+    "service_areas": [
+      "orange county",
+      "anaheim",
+      "santa ana",
+      "irvine",
+      "orange",
+      "garden grove",
+      "fullerton"
+    ]
+  },
+  {
     "firm_id": "pacific_heights",
     "name": "Pacific Heights Injury Law",
     "phone": "(415) 555-0101",
     "test_phone": "+15550101001",
-    "jurisdictions": ["CA"],
-    "languages": ["en", "es"],
-    "specialties": ["general_pi", "auto", "mva", "rear_end"],
+    "jurisdictions": [
+      "CA"
+    ],
+    "languages": [
+      "en",
+      "es"
+    ],
+    "specialties": [
+      "general_pi",
+      "auto",
+      "mva",
+      "rear_end"
+    ],
     "min_strength": 35,
     "location": "San Francisco, CA",
-    "service_areas": ["san francisco", "sf", "pacific heights", "marina", "presidio", "richmond district"]
+    "service_areas": [
+      "san francisco",
+      "sf",
+      "pacific heights",
+      "marina",
+      "presidio",
+      "richmond district"
+    ]
   },
   {
     "firm_id": "mission_legal",
     "name": "Mission Legal Advocates",
     "phone": "(415) 555-0102",
     "test_phone": "+15550101002",
-    "jurisdictions": ["CA"],
-    "languages": ["en", "es"],
-    "specialties": ["pedestrian", "auto", "mva"],
+    "jurisdictions": [
+      "CA"
+    ],
+    "languages": [
+      "en",
+      "es"
+    ],
+    "specialties": [
+      "pedestrian",
+      "auto",
+      "mva"
+    ],
     "min_strength": 40,
     "location": "Mission District, San Francisco, CA",
-    "service_areas": ["san francisco", "sf", "mission", "bernal heights", "potrero hill", "excelsior"]
+    "service_areas": [
+      "san francisco",
+      "sf",
+      "mission",
+      "bernal heights",
+      "potrero hill",
+      "excelsior"
+    ]
   },
   {
     "firm_id": "golden_gate",
     "name": "Golden Gate Accident Attorneys",
     "phone": "(415) 555-0103",
     "test_phone": "+15550101003",
-    "jurisdictions": ["CA"],
-    "languages": ["en"],
-    "specialties": ["motorcycle", "auto", "mva"],
+    "jurisdictions": [
+      "CA"
+    ],
+    "languages": [
+      "en"
+    ],
+    "specialties": [
+      "motorcycle",
+      "auto",
+      "mva"
+    ],
     "min_strength": 50,
     "location": "Financial District, San Francisco, CA",
-    "service_areas": ["san francisco", "sf", "financial district", "soma", "south beach", "embarcadero"]
+    "service_areas": [
+      "san francisco",
+      "sf",
+      "financial district",
+      "soma",
+      "south beach",
+      "embarcadero"
+    ]
   },
   {
     "firm_id": "chen_omalley",
     "name": "Chen & O'Malley LLP",
     "phone": "(415) 555-0104",
     "test_phone": "+15550101004",
-    "jurisdictions": ["CA"],
-    "languages": ["en", "zh"],
-    "specialties": ["slip_fall", "premises", "high_value"],
+    "jurisdictions": [
+      "CA"
+    ],
+    "languages": [
+      "en",
+      "zh"
+    ],
+    "specialties": [
+      "slip_fall",
+      "premises",
+      "high_value"
+    ],
     "min_strength": 70,
     "location": "Nob Hill, San Francisco, CA",
-    "service_areas": ["san francisco", "sf", "nob hill", "russian hill", "north beach", "chinatown"]
+    "service_areas": [
+      "san francisco",
+      "sf",
+      "nob hill",
+      "russian hill",
+      "north beach",
+      "chinatown"
+    ]
   },
   {
     "firm_id": "bay_counsel",
     "name": "Bay Counsel Injury Group",
     "phone": "(415) 555-0105",
     "test_phone": "+15550101005",
-    "jurisdictions": ["CA"],
-    "languages": ["en", "es", "hi"],
-    "specialties": ["general_pi", "auto", "pedestrian"],
+    "jurisdictions": [
+      "CA"
+    ],
+    "languages": [
+      "en",
+      "es",
+      "hi"
+    ],
+    "specialties": [
+      "general_pi",
+      "auto",
+      "pedestrian"
+    ],
     "min_strength": 35,
     "location": "San Francisco Bay Area, CA",
-    "service_areas": ["san francisco", "sf", "bay area", "daly city", "south san francisco", "oakland"]
+    "service_areas": [
+      "san francisco",
+      "sf",
+      "bay area",
+      "daly city",
+      "south san francisco",
+      "oakland"
+    ]
   }
 ]

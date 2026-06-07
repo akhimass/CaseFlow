@@ -83,6 +83,7 @@ async def put_text(case_id: str, relative_path: str, body: str) -> str | None:
             Key=key,
             Body=body.encode("utf-8"),
             ContentType=_content_type(relative_path),
+            **_encryption_extra(),
         )
         return key
 
@@ -100,7 +101,6 @@ async def put_json(case_id: str, relative_path: str, data: Any) -> str | None:
 async def append_transcript_jsonl(case_id: str, lines: list[dict[str, Any]]) -> str | None:
     if not lines:
         return None
-    existing = ""
     key = artifact_key(case_id, "transcript.jsonl")
 
     def _append() -> str:
@@ -118,6 +118,7 @@ async def append_transcript_jsonl(case_id: str, lines: list[dict[str, Any]]) -> 
             Key=key,
             Body=body,
             ContentType="application/x-ndjson",
+            **_encryption_extra(),
         )
         return key
 
@@ -175,6 +176,7 @@ async def put_bytes(
             Key=key,
             Body=body,
             ContentType=content_type,
+            **_encryption_extra(),
         )
         return key
 

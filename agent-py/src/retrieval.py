@@ -778,9 +778,11 @@ class Retriever:
                 score += 5
                 reasons.append(f"meets ${min_value:,} case-value floor")
             county = m.get("county", "").lower()
-            if location and county and any(tok in county for tok in location.split()):
+            profile = (getattr(d, "text", "") or "").lower()
+            loc_tokens = [t.strip(",.") for t in location.split() if len(t.strip(",.")) > 3]
+            if location and any(tok in county or tok in profile for tok in loc_tokens):
                 score += 8
-                reasons.append(f"local presence in {m.get('county')}")
+                reasons.append(f"local presence near {caller_location}")
 
             firm_id = m.get("firm_id", getattr(d, "id", ""))
             # Learning loop: lawyers' prior feedback on this firm shifts its fit.

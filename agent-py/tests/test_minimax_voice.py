@@ -1,6 +1,9 @@
 from minimax_voice import (
     VoiceSessionState,
     apply_tts_options,
+    build_caseflow_stt,
+    caseflow_stt_model,
+    deepgram_configured,
     detect_language_from_text,
     language_boost_for,
     resolve_caller_language,
@@ -61,6 +64,24 @@ def test_sync_caller_language_switches_voice(monkeypatch) -> None:
 
     changed_again = sync_caller_language(state, "es", tts=FakeTTS())  # type: ignore[arg-type]
     assert changed_again is False
+
+
+def test_deepgram_configured(monkeypatch) -> None:
+    monkeypatch.delenv("DEEPGRAM_API_KEY", raising=False)
+    assert deepgram_configured() is False
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "test-key")
+    assert deepgram_configured() is True
+
+
+def test_build_caseflow_stt_uses_deepgram_when_keyed(monkeypatch) -> None:
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "test-key")
+    stt_instance = build_caseflow_stt()
+    assert stt_instance.__class__.__module__.startswith("livekit.plugins.deepgram")
+
+
+def test_caseflow_stt_model_defaults_to_deepgram_nova3(monkeypatch) -> None:
+    monkeypatch.delenv("CASEFLOW_STT_MODEL", raising=False)
+    assert caseflow_stt_model() == "deepgram/nova-3"
 
 
 def test_apply_tts_options_uses_confirmed_boost() -> None:

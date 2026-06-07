@@ -429,7 +429,30 @@ class Retriever:
             or "compensation" in topic_norm
         ):
             topic_norm = "damages"
-        elif topic_norm not in {"sol", "negligence", "damages", "general"}:
+        elif (
+            "premises" in topic_norm
+            or "slip" in topic_norm
+            or "trip" in topic_norm
+            or "fall" in topic_norm
+        ):
+            topic_norm = "premises"
+        elif "dog" in topic_norm or "bite" in topic_norm or "animal" in topic_norm:
+            topic_norm = "dog_bite"
+        elif (
+            "malpractice" in topic_norm
+            or "med_mal" in topic_norm
+            or "medical" in topic_norm
+        ):
+            topic_norm = "med_mal"
+        elif topic_norm not in {
+            "sol",
+            "negligence",
+            "damages",
+            "general",
+            "premises",
+            "dog_bite",
+            "med_mal",
+        }:
             topic_norm = "general"
 
         cache_key = f"state-law:{state_code}:{topic_norm}"
@@ -844,8 +867,16 @@ class Retriever:
     # -- D) procedural guidance -------------------------------------------- #
     async def procedures(self, scenario: str) -> list[ProcedureSnippet]:
         scen = _norm(scenario) or "post_accident_72h"
-        # Map common phrasings to indexed scenarios.
-        if (
+        # Map common phrasings to indexed scenarios. Check the case-type-specific
+        # scenarios first — otherwise "after a slip and fall" would be swallowed by
+        # the generic "after/first" auto checklist below.
+        if "slip" in scen or "trip" in scen or ("fall" in scen and "after" in scen):
+            scen = "post_slip_fall_48h"
+        elif "dog" in scen or "bite" in scen or "animal" in scen:
+            scen = "post_dog_bite_24h"
+        elif "malpractice" in scen or "med_mal" in scen or "medical" in scen:
+            scen = "med_mal_expectations"
+        elif (
             "72" in scen
             or "after" in scen
             or "first" in scen

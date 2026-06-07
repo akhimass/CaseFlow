@@ -6,13 +6,24 @@ import type { CaseRecord } from '@/hooks/useCaseflowEvents';
 import { StrengthGauge, estimatedValue, formatUsd } from './viz';
 
 const ACCIDENT_LABELS: Record<string, string> = {
-  rear_end: 'Rear-end collision',
+  rear_end: 'Auto · rear-end',
+  t_bone: 'Auto · T-bone',
+  head_on: 'Auto · head-on',
   pedestrian: 'Pedestrian',
-  slip_fall: 'Slip & fall',
+  bicycle: 'Bicycle',
+  rideshare: 'Rideshare',
   motorcycle: 'Motorcycle',
   auto: 'Auto collision',
   mva: 'Motor-vehicle accident',
+  slip_fall: 'Slip & fall',
   premises: 'Premises liability',
+  dog_bite: 'Dog bite',
+  workplace: 'Workplace injury',
+  medical_malpractice: 'Medical malpractice',
+  product_liability: 'Product liability',
+  nursing_home: 'Nursing-home neglect',
+  assault: 'Assault injury',
+  wrongful_death: 'Wrongful death',
 };
 
 const LANGUAGE_LABELS: Record<string, string> = {

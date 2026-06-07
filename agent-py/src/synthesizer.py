@@ -25,6 +25,9 @@ MAX_TOKENS = 250  # hard budget; we truncate to stay under it
 SYSTEM_PROMPT = (
     "You are the Caseflowy synthesis engine. Given the case state and four retrieval "
     "streams, write a 3-5 sentence synthesis in the caller's language that:\n"
+    "0. Opens by naming the case type and jurisdiction explicitly (e.g. 'For this "
+    "rear-end auto case in Orange County...' or 'For this slip-and-fall premises "
+    "case in Los Angeles...')\n"
     "1. Names the strongest applicable state law fact and cites its ID\n"
     "2. References the comparable settlement range and cites the closest match's ID\n"
     "3. Names the top-matched firm and explains why in one clause, citing the firm ID\n"

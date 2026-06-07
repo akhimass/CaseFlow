@@ -70,8 +70,36 @@ ALL_KNOWLEDGE_INDEXES = (
 # Rough case-value estimate by severity, used to test firm min_case_value gates.
 _SEVERITY_VALUE = {"low": 25_000, "medium": 60_000, "high": 175_000}
 
+# State code -> full name, to spell out the jurisdiction in semantic queries.
+_STATE_FULL = {
+    "CA": "California",
+    "TX": "Texas",
+    "FL": "Florida",
+    "AZ": "Arizona",
+    "NV": "Nevada",
+    "NY": "New York",
+}
+
 # Soft per-call rate-limit budget (Part 5B). Exceeding it only logs a warning.
 MAX_QUERIES_PER_MIN = 6
+
+
+def _moss_alpha() -> float | None:
+    """Hybrid dense/keyword weight for single-index queries.
+
+    Moss treats ``alpha=1.0`` as embedding-only; lower blends in keyword matching,
+    which sharpens exact-term recall on the legal corpus (statute numbers, MICRA,
+    ICD-10 codes, firm names). Default unset = Moss's own default; set ``MOSS_ALPHA``
+    (e.g. 0.8 for mostly-semantic + a keyword boost) to enable hybrid. Ignored by
+    ``query_multi_index`` (firm leads), which Moss forces to embedding-only.
+    """
+    raw = os.getenv("MOSS_ALPHA", "").strip()
+    if not raw:
+        return None
+    try:
+        return max(0.0, min(1.0, float(raw)))
+    except ValueError:
+        return None
 
 # Callback the agent wires to broadcast a retrieval card to the firm dashboard.
 OnResult = Callable[[dict[str, Any]], Awaitable[None]]
@@ -297,10 +325,11 @@ class Retriever:
     async def _query(
         self, index: str, query: str, *, top_k: int, metadata_filter: dict | None = None
     ) -> tuple[list[Any], float, str | None]:
+        alpha = _moss_alpha()
         options = (
-            QueryOptions(top_k=top_k, filter=metadata_filter)
+            QueryOptions(top_k=top_k, filter=metadata_filter, alpha=alpha)
             if metadata_filter
-            else QueryOptions(top_k=top_k)
+            else QueryOptions(top_k=top_k, alpha=alpha)
         )
         # Per-minute budget guard (Part 5B). Caching keeps most cycles well under
         # this; we warn rather than block so a busy call never stalls mid-demo.
@@ -488,7 +517,14 @@ class Retriever:
             if hit is not None:
                 return hit
 
-        query = f"{state_code} personal injury {topic_norm.replace('_', ' ')}"
+        # Include the full state name — the corpus says "California", not "CA",
+        # so spelling it out sharpens semantic ranking (cloud ignores metadata
+        # filters, so the query string carries the jurisdiction intent).
+        state_full = _STATE_FULL.get(state_code, state_code)
+        query = (
+            f"{state_full} ({state_code}) personal injury "
+            f"{topic_norm.replace('_', ' ')}"
+        )
         filt = {"$and": [_eq("state", state_code), _eq("topic", topic_norm)]}
         docs, elapsed, err = await self._query(
             STATE_LAW_INDEX, query, top_k=3, metadata_filter=filt

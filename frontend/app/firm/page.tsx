@@ -5,30 +5,26 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AwsArtifactsPanel } from '@/components/firm/aws-artifacts-panel';
 import { CaseflowDecisionCard } from '@/components/firm/caseflow-decision-card';
-import { ConsistencyAuditPanel } from '@/components/firm/consistency-audit-panel';
+import { FirmKpiStrip } from '@/components/firm/dashboard/firm-kpis';
+import { GuardrailsDashboard } from '@/components/firm/dashboard/guardrails';
+import { LeadHeader } from '@/components/firm/dashboard/lead-header';
+import { MossOverview } from '@/components/firm/dashboard/moss-overview';
+import { TrueFoundryPrivacyDashboard } from '@/components/firm/dashboard/truefoundry-privacy';
+import {
+  SectionHeader,
+  estimatedValue,
+  formatUsd,
+  strengthTone,
+} from '@/components/firm/dashboard/viz';
 import { DocumentsPanel } from '@/components/firm/documents-panel';
-import { GatewayMetricsPanel } from '@/components/firm/gateway-metrics-panel';
 import { LiveTranscriptPanel } from '@/components/firm/live-transcript-panel';
 import { MossEvidenceTrail } from '@/components/firm/moss-evidence-trail';
-import { MossFirmLeadsPanel } from '@/components/firm/moss-firm-leads-panel';
 import { MossIntelligencePanel } from '@/components/firm/moss-intelligence-panel';
-import { PrivacyPanel } from '@/components/firm/privacy-panel';
-import { SponsorStrip } from '@/components/firm/sponsor-strip';
 import { UnsiloedParsedPanel } from '@/components/firm/unsiloed-parsed-panel';
 import { VoiceBridgePanel } from '@/components/firm/voice-bridge-panel';
 import { Button } from '@/components/ui/button';
 import { type CaseRecord, useCaseflowEvents } from '@/hooks/useCaseflowEvents';
 import { type FirmSession, caseVisibleToFirm } from '@/lib/firm-session';
-
-function ScoreGauge({ score }: { score: number }) {
-  const color = score >= 70 ? 'text-emerald-600' : score >= 40 ? 'text-amber-600' : 'text-red-600';
-  return (
-    <div className={`text-5xl font-bold tabular-nums ${color}`}>
-      {score}
-      <span className="text-muted-foreground text-lg font-normal">/100</span>
-    </div>
-  );
-}
 
 function CaseDetail({
   record,
@@ -39,118 +35,61 @@ function CaseDetail({
   revealed: boolean;
   onReveal: () => void;
 }) {
-  const strength = Number(record.score ?? record.case_strength ?? 0);
-  const matches = (record.matches as Array<Record<string, unknown>>) ?? [];
-  const outbound = record.status as string | undefined;
-
   return (
-    <div className="space-y-6">
-      <div className="from-primary/5 border-border flex flex-col gap-3 rounded-xl border bg-gradient-to-r to-transparent p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-sm font-semibold">Caseflow Counsel — voice briefing</div>
-          <p className="text-muted-foreground text-sm">
-            Have the agent walk you through this lead and answer your questions out loud.
-          </p>
+    <div className="space-y-8">
+      <LeadHeader record={record} />
+
+      <GuardrailsDashboard record={record} />
+
+      <div>
+        <SectionHeader
+          eyebrow="Moss · retrieval"
+          title="Moss retrieval intelligence"
+          description="Four live retrieval streams ground every recommendation in real CA law, comparable settlements, firm fit, and procedure."
+        />
+        <div className="space-y-4">
+          <MossOverview record={record} />
+          <MossIntelligencePanel record={record} />
+          <CaseflowDecisionCard record={record} />
+          <MossEvidenceTrail record={record} />
         </div>
-        <Button asChild>
-          <Link href={`/firm/brief/${String(record.case_id)}`}>Brief me on this case</Link>
-        </Button>
       </div>
 
-      <PrivacyPanel record={record} revealed={revealed} onReveal={onReveal} />
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <LiveTranscriptPanel record={record} />
-        <ConsistencyAuditPanel record={record} />
+      <div>
+        <SectionHeader
+          eyebrow="Unsiloed · documents"
+          title="Document parsing"
+          description="Documents the caller holds to the camera are parsed live into structured fields with per-field confidence."
+        />
+        <div className="space-y-4">
+          <UnsiloedParsedPanel record={record} />
+          <DocumentsPanel record={record} />
+        </div>
       </div>
 
-      <VoiceBridgePanel record={record} />
+      <TrueFoundryPrivacyDashboard record={record} revealed={revealed} onReveal={onReveal} />
 
-      <MossIntelligencePanel record={record} />
-
-      <MossFirmLeadsPanel record={record} />
-
-      <MossEvidenceTrail record={record} />
-
-      <UnsiloedParsedPanel record={record} />
-
-      <CaseflowDecisionCard record={record} />
-
-      <DocumentsPanel record={record} />
+      <div>
+        <SectionHeader
+          eyebrow="Conversation"
+          title="Intake conversation & delivery"
+          description="The verbatim transcript and the speech pipeline that ran the multilingual intake."
+        />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <LiveTranscriptPanel record={record} />
+          <VoiceBridgePanel record={record} />
+        </div>
+      </div>
 
       <AwsArtifactsPanel record={record} />
-
-      <GatewayMetricsPanel collapsed={false} />
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="border-border rounded-lg border p-4">
-          <div className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
-            Case strength
-          </div>
-          <ScoreGauge score={strength} />
-        </div>
-        <div className="border-border rounded-lg border p-4 sm:col-span-2">
-          <div className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
-            Case fields
-          </div>
-          <dl className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
-            {[
-              'caller_id',
-              'caller_location',
-              'location',
-              'state',
-              'accident_type',
-              'fault_claim',
-              'injuries',
-              'language',
-            ].map((key) =>
-              record[key] ? (
-                <div key={key}>
-                  <dt className="text-muted-foreground">{key}</dt>
-                  <dd className="font-medium">{String(record[key])}</dd>
-                </div>
-              ) : null
-            )}
-          </dl>
-        </div>
-      </div>
-
-      {matches.length > 0 && (
-        <div>
-          <h3 className="text-muted-foreground mb-2 text-sm font-semibold tracking-wide uppercase">
-            Firm matches
-          </h3>
-          <div className="space-y-2">
-            {matches.map((match) => (
-              <div
-                key={String(match.firm_id)}
-                className="border-border bg-card rounded-lg border p-4"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold">{String(match.name)}</span>
-                  <span className="text-primary text-sm tabular-nums">{String(match.score)}</span>
-                </div>
-                <p className="text-muted-foreground mt-1 text-sm">{String(match.reasoning)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="border-border rounded-lg border border-dashed p-4">
-        <div className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
-          Outbound call status
-        </div>
-        <p className="mt-1 text-sm">
-          {outbound === 'booked'
-            ? 'Briefing complete — consult booked'
-            : record.last_event === 'outbound_call'
-              ? 'Dialing → briefing → booked'
-              : 'Idle — waiting for intake to complete'}
-        </p>
-      </div>
     </div>
   );
+}
+
+function prettyAccident(value: unknown): string {
+  return String(value ?? '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export default function FirmPage() {
@@ -214,25 +153,26 @@ export default function FirmPage() {
   if (!session) return null;
 
   return (
-    <div className="bg-background min-h-svh">
-      <header className="border-border border-b px-6 py-4">
+    <div className="bg-muted/30 min-h-svh">
+      <header className="border-border bg-background border-b px-6 py-4">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <div>
-            <Link href="/" className="text-lg font-semibold">
-              Caseflow
+            <Link href="/" className="text-lg font-semibold tracking-tight">
+              Caseflowy <span className="text-muted-foreground font-normal">Intelligence</span>
             </Link>
             <p className="text-muted-foreground text-sm">
               {session.firm_name}
-              {session.city ? ` · ${session.city}` : ''} · live matched intakes
+              {session.city ? ` · ${session.city}` : ''}
             </p>
           </div>
-          <SponsorStrip compact />
           <div className="flex items-center gap-2">
-            <span
-              className={`size-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-amber-500'}`}
-            />
-            <span className="text-muted-foreground text-sm">
-              {connected ? 'Live' : 'Reconnecting…'}
+            <span className="border-border flex items-center gap-1.5 rounded-full border px-2.5 py-1">
+              <span
+                className={`size-2 rounded-full ${connected ? 'animate-pulse bg-emerald-500' : 'bg-amber-500'}`}
+              />
+              <span className="text-muted-foreground text-xs font-medium">
+                {connected ? 'Live' : 'Reconnecting…'}
+              </span>
             </span>
             <Button
               variant={autoBrief ? 'default' : 'outline'}
@@ -263,56 +203,78 @@ export default function FirmPage() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-0 md:grid-cols-[280px_1fr]">
-        <aside className="border-border border-b p-4 md:min-h-[calc(100svh-73px)] md:border-r md:border-b-0">
-          <h2 className="text-muted-foreground mb-3 text-xs font-semibold tracking-wide uppercase">
-            Incoming cases
-          </h2>
-          {firmCases.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              No matched intakes yet. Open /intake/consent in another tab, enter San Francisco as
-              your location, and complete a call.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {firmCases.map((c) => (
-                <li key={String(c.case_id)}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(String(c.case_id))}
-                    className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
-                      selected?.case_id === c.case_id
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:bg-muted/50'
-                    }`}
-                  >
-                    <div className="font-medium">{String(c.caller_id ?? c.case_id)}</div>
-                    <div className="text-muted-foreground text-xs">
-                      {String(c.last_event ?? 'intake')}
-                      {c.language ? ` · ${String(c.language)}` : ''}
-                    </div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </aside>
+      <div className="mx-auto max-w-7xl px-6 py-6">
+        {firmCases.length > 0 ? <FirmKpiStrip cases={firmCases} /> : null}
 
-        <main className="p-6">
-          {selected ? (
-            <CaseDetail
-              record={selected}
-              revealed={revealedIds.has(String(selected.case_id))}
-              onReveal={async () => {
-                const id = String(selected.case_id);
-                await fetch(`/api/cases/${id}/reveal`, { method: 'POST' });
-                setRevealedIds((prev) => new Set(prev).add(id));
-              }}
-            />
-          ) : (
-            <p className="text-muted-foreground">Select a case to view details.</p>
-          )}
-        </main>
+        <div className="mt-6 grid gap-6 md:grid-cols-[300px_1fr]">
+          <aside className="md:sticky md:top-6 md:self-start">
+            <div className="border-border bg-background rounded-2xl border p-4">
+              <h2 className="text-muted-foreground mb-3 text-xs font-semibold tracking-wide uppercase">
+                Incoming cases
+              </h2>
+              {firmCases.length === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  No matched intakes yet. Open /intake/consent in another tab, enter San Francisco
+                  as your location, and complete a call.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {firmCases.map((c) => {
+                    const score = Number(c.score ?? c.case_strength ?? 0);
+                    const tone = strengthTone(score);
+                    const active = selected?.case_id === c.case_id;
+                    return (
+                      <li key={String(c.case_id)}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedId(String(c.case_id))}
+                          className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                            active
+                              ? 'border-primary bg-primary/5'
+                              : 'border-border hover:bg-muted/50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate font-medium">
+                              {String(c.caller_id ?? c.case_id)}
+                            </span>
+                            <span className={`text-sm font-semibold tabular-nums ${tone.text}`}>
+                              {score}
+                            </span>
+                          </div>
+                          <div className="text-muted-foreground mt-0.5 flex items-center justify-between gap-2 text-xs">
+                            <span className="truncate">
+                              {prettyAccident(c.accident_type) || 'Intake'}
+                            </span>
+                            <span className="tabular-nums">{formatUsd(estimatedValue(c))}</span>
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </aside>
+
+          <main>
+            {selected ? (
+              <CaseDetail
+                record={selected}
+                revealed={revealedIds.has(String(selected.case_id))}
+                onReveal={async () => {
+                  const id = String(selected.case_id);
+                  await fetch(`/api/cases/${id}/reveal`, { method: 'POST' });
+                  setRevealedIds((prev) => new Set(prev).add(id));
+                }}
+              />
+            ) : (
+              <div className="border-border bg-background text-muted-foreground rounded-2xl border border-dashed p-12 text-center">
+                Select a case to view its full intelligence dashboard.
+              </div>
+            )}
+          </main>
+        </div>
       </div>
     </div>
   );

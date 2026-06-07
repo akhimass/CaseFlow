@@ -278,7 +278,6 @@ class Assistant(Agent):
         }
         if self._caller_location:
             self._case_data["location"] = self._caller_location
-            self._case_data["state"] = "CA"
             self._case_data["caller_location"] = self._caller_location
         self._moss = MossClient(
             os.getenv("MOSS_PROJECT_ID"), os.getenv("MOSS_PROJECT_KEY")
@@ -310,6 +309,7 @@ class Assistant(Agent):
         self._generated_doc_types: set[str] = set()
         self._completeness_doc_fired = False
         self._match_docs_fired = False
+        self._moss_after_first_turn = False
         self._persistence = CasePersistence(
             self._case_id,
             self._user_id,
@@ -593,9 +593,6 @@ class Assistant(Agent):
 
     async def on_enter(self) -> None:
         self._spawn(self._preload_indexes())
-        # Demo: fan out all four Moss namespaces as soon as CA state is pre-seeded.
-        if self._case_data.get("state"):
-            self._spawn(self._run_retrieval_fanout())
         if self.session is None:
             return
         await self.session.generate_reply(
@@ -1253,6 +1250,9 @@ async def my_agent(ctx: JobContext):
                 "caller", ev.transcript, lang, assistant._turn
             )
             await assistant._auto_extract_and_save(ev.transcript, lang)
+            if assistant._turn == 1 and not assistant._moss_after_first_turn:
+                assistant._moss_after_first_turn = True
+                assistant._spawn(assistant._run_retrieval_fanout())
             await assistant._maybe_capture_document(ev.transcript)
             await maybe_validate_turn(
                 turn=assistant._turn,

@@ -185,6 +185,9 @@ export function AgentSessionView_01({
   const [chatOpen, setChatOpen] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { state: agentState } = useAgent();
+  const conversationStarted = messages.some((message) => message.from?.isLocal === true);
+  const ariaActive =
+    agentState === 'listening' || agentState === 'speaking' || agentState === 'thinking';
   // Live "Knowledge Matches" surfaced from the agent's `moss_context` data messages.
   const mossEvents = useMossContextEvents();
   const documentParseEvents = useDocumentParseEvents();
@@ -237,7 +240,7 @@ export function AgentSessionView_01({
       <div className="pointer-events-auto absolute top-0 right-0 bottom-[170px] z-[60] w-full max-w-sm overflow-y-auto overscroll-contain px-4 pt-40 pb-4">
         <div className="space-y-4">
           <DocumentParsingPanel events={documentParseEvents} />
-          <MossResultsPanel events={mossEvents} />
+          <MossResultsPanel events={mossEvents} hidden={!conversationStarted} />
         </div>
       </div>
       <div className="pointer-events-none absolute inset-x-4 bottom-[148px] z-[55] flex justify-center md:bottom-[178px]">
@@ -270,15 +273,17 @@ export function AgentSessionView_01({
         {/* Pre-connect message */}
         {isPreConnectBufferEnabled && (
           <AnimatePresence>
-            {messages.length === 0 && (
+            {!ariaActive && messages.length === 0 && (
               <MotionMessage
                 key="pre-connect-message"
                 duration={2}
-                aria-hidden={messages.length > 0}
+                aria-hidden={ariaActive || messages.length > 0}
                 {...SHIMMER_MOTION_PROPS}
                 className="pointer-events-none mx-auto block w-full max-w-2xl pb-4 text-center text-sm font-semibold"
               >
-                {preConnectMessage}
+                {agentState === 'connecting'
+                  ? 'Aria is connecting — first cloud start can take up to 30 seconds…'
+                  : preConnectMessage}
               </MotionMessage>
             )}
           </AnimatePresence>

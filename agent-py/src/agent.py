@@ -8,7 +8,6 @@ import time
 import uuid
 
 from dotenv import load_dotenv
-from livekit import rtc
 from livekit.agents import (
     Agent,
     AgentServer,
@@ -219,16 +218,13 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
 
     # Camera and documents
 
-    The caller is on live video. You are told when their camera turns on or off.
-    - When a document would help, first ask them to turn on their camera if it is
-      off ("Would you mind turning on your camera so I can take a look?"). The
-      camera turns on for them automatically when you ask.
-    - Once the camera is on, ask them to hold the document steady, close to the
-      lens, and keep it in frame. Then the document is parsed automatically — you
-      do not read it aloud or call any tool by name.
-    - If the camera is already on, skip straight to "go ahead and hold it up."
-    - Never ask for a document and a camera in the same breath as another
-      question — make it a single, calm request.
+    The caller is on live video.
+    - When a document would help, ask them to turn on their camera so you can take
+      a look ("Would you mind turning on your camera so I can see it?"). The camera
+      turns on for them automatically when you ask.
+    - Then ask them to hold the document steady, close to the lens, and keep it in
+      frame. It is parsed automatically — you do not read it aloud or name a tool.
+    - Make it a single, calm request — don't stack it with another question.
 
     # Retrieval tools
 
@@ -393,9 +389,6 @@ class Assistant(Agent):
         self._completeness_doc_fired = False
         self._match_docs_fired = False
         self._moss_after_first_turn = False
-        # Live camera on/off state, learned from LiveKit room track events so the
-        # agent knows whether it can already see the caller before asking for a doc.
-        self._camera_on = False
         # Discrepancy + citation-trail state (Gap 5 / Enh F).
         self._discrepancy_surfaced = False
         self._last_fault_claim = ""
@@ -842,15 +835,6 @@ class Assistant(Agent):
             {"moss_retrieval": event, "moss_retrievals": retrievals},
         )
         await self._publish_moss_context_event(event)
-
-    async def _set_camera_state(self, on: bool) -> None:
-        """Record the caller's camera on/off state and surface it to the dashboard."""
-        if self._camera_on == on:
-            return
-        self._camera_on = on
-        logger.info("CASEFLOW_CAMERA %s", "on" if on else "off")
-        with contextlib.suppress(Exception):
-            await self._update_case("camera_state", {"camera_on": on})
 
     async def _broadcast_voice_bridge(self, *, language: str, language_changed: bool) -> None:
         """Surface Deepgram STT → MiniMax TTS routing on the firm dashboard."""
@@ -1472,32 +1456,6 @@ async def my_agent(ctx: JobContext):
         ctx.room,
         on_frame=assistant._on_document_frame,
     )
-
-    # Track the caller's camera on/off state from room events so the agent knows
-    # whether it can already see them before asking for a document. Handlers take
-    # *args because LiveKit's track event signatures differ (some pass the
-    # publication first, some the participant); we just find the camera publication.
-    def _camera_publication(args) -> object | None:
-        for item in args:
-            if getattr(item, "source", None) == rtc.TrackSource.SOURCE_CAMERA:
-                return item
-        return None
-
-    def _on_camera_active(*args) -> None:
-        pub = _camera_publication(args)
-        if pub is not None:
-            assistant._spawn(
-                assistant._set_camera_state(not getattr(pub, "muted", False))
-            )
-
-    def _on_camera_inactive(*args) -> None:
-        if _camera_publication(args) is not None:
-            assistant._spawn(assistant._set_camera_state(False))
-
-    for _event in ("track_published", "track_subscribed", "track_unmuted"):
-        ctx.room.on(_event, _on_camera_active)
-    for _event in ("track_unpublished", "track_unsubscribed", "track_muted"):
-        ctx.room.on(_event, _on_camera_inactive)
 
     @session.on("user_input_transcribed")
     def _on_user_transcribed(ev: UserInputTranscribedEvent) -> None:

@@ -35,7 +35,7 @@ from case_broadcast import broadcast
 from case_completeness import case_completeness, completeness_crossed
 from case_persistence import CasePersistence
 from caseflow_userdata import CaseflowUserdata
-from citations import filter_citation_stream, strip_citations
+from citations import filter_citation_stream, sanitize_agent_text, strip_citations
 from comprehend_medical import extract_icd10_codes
 from consistency import (
     audit_utterance,
@@ -430,6 +430,12 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
     promise settlement amounts or legal outcomes. Say "filing window" not
     "statute of limitations" unless the caller does.
 
+    CRITICAL — you are a voice on a call, not a coding assistant. NEVER output
+    code, code fences, JSON, language tags ("typescript"), function names, or tool
+    syntax like `save_case_field(...)`. NEVER narrate that you are saving, capturing,
+    or recording information ("Let me capture this…"). Use your tools silently and
+    just keep talking like a person — only the spoken words to the caller.
+
     Keep a calm, relaxed, unhurried cadence for the entire call — soft, warm, and
     steady, even while collecting routine facts. Leave a brief, natural pause after
     the caller finishes before you respond, so they never feel rushed or talked
@@ -613,20 +619,27 @@ class Assistant(Agent):
         ud.caller_location = self._caller_location
 
     async def tts_node(self, text, model_settings):
-        """Strip [cite:<id>] markers before synthesis and emit cited_source events.
+        """Sanitize before synthesis: strip [cite:] markers (firing cited_source
+        events), residual PII placeholders, and any leaked tool-call/code syntax so
+        the caller never HEARS 'functions.save_case_field(...)'. Buffered so a code
+        block split across chunks is fully removed before speech."""
 
-        Aria embeds citation markers inline; the caller must never hear them, so we
-        filter the streamed text here (markers can span chunks) and fire a
-        cited_source event per marker so the firm dashboard pulses the grounding card.
-        """
-        cleaned = filter_citation_stream(text, self._emit_citation)
-        async for frame in Agent.default.tts_node(self, cleaned, model_settings):
+        async def _clean():
+            buf = ""
+            async for chunk in filter_citation_stream(text, self._emit_citation):
+                buf += chunk
+            cleaned = sanitize_agent_text(_RESIDUAL_PLACEHOLDER_RE.sub("", buf))
+            if cleaned:
+                yield cleaned
+
+        async for frame in Agent.default.tts_node(self, _clean(), model_settings):
             yield frame
 
     async def transcription_node(self, text, model_settings):
-        """Clean the caller-facing transcript: drop [cite:...] markers and any
-        residual PII placeholders so the caller never sees '[cite:...]' or a
-        leaked '[CF_NAME_1]' in the on-screen conversation."""
+        """Clean the caller-facing transcript: drop [cite:] markers, residual PII
+        placeholders, and any leaked tool-call/code syntax so the on-screen
+        conversation never shows '[cite:...]', '[CF_NAME_1]', or
+        'functions.save_case_field(...)'. Buffered for cross-chunk patterns."""
 
         async def _noop(_cid: str) -> None:
             return
@@ -634,10 +647,12 @@ class Assistant(Agent):
         redactor = (
             Redactor(self._redaction_session) if self._redaction_session else None
         )
+        buf = ""
         async for chunk in filter_citation_stream(text, _noop):
-            out = redactor.unredact(chunk) if redactor else chunk
-            out = _RESIDUAL_PLACEHOLDER_RE.sub("", out)
-            yield out
+            buf += redactor.unredact(chunk) if redactor else chunk
+        cleaned = sanitize_agent_text(_RESIDUAL_PLACEHOLDER_RE.sub("", buf))
+        if cleaned:
+            yield cleaned
 
     async def _emit_citation(self, citation_id: str) -> None:
         """Broadcast a cited_source event (SSE to firm dashboard + LiveKit packet)."""
@@ -682,9 +697,11 @@ class Assistant(Agent):
     async def _append_transcript(
         self, speaker: str, text: str, language: str, turn: int
     ) -> None:
-        # Clean stored/displayed transcript: drop [cite:...] markers and any
-        # residual PII placeholder so neither the caller nor the firm sees them.
-        text = _RESIDUAL_PLACEHOLDER_RE.sub("", strip_citations(text)[0]).strip()
+        # Clean stored/displayed transcript: drop [cite:...] markers, residual PII
+        # placeholders, and any leaked tool-call/code syntax.
+        text = sanitize_agent_text(
+            _RESIDUAL_PLACEHOLDER_RE.sub("", strip_citations(text)[0])
+        )
         if not text:
             return
         line = {

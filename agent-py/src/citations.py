@@ -25,6 +25,35 @@ logger = logging.getLogger("citations")
 # A citation id is namespace:docid, e.g. settlements:ca-rear-end-med-contested.
 CITE_RE = re.compile(r"\[cite:\s*([a-z0-9][a-z0-9_\-]*:[a-z0-9][a-z0-9_\-]*)\s*\]", re.I)
 
+# Tool-call / code leakage: some models narrate tool calls as text instead of
+# invoking them (e.g. "functions.save_case_field({...})") or wrap output in code
+# fences. None of that should ever be spoken or shown to the caller.
+_CODE_FENCE_RE = re.compile(r"```[\s\S]*?```")
+_TOOL_CALL_RE = re.compile(
+    r"(?:functions\.)?[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?\s*\(\s*\{[^}]*\}\s*\)"
+)
+_LANG_TAG_RE = re.compile(
+    r"(?im)^\s*(typescript|javascript|python|json|ts|js|tsx|jsx|bash|tool_call)\s*$"
+)
+_NARRATE_RE = re.compile(
+    r"(?i)\b(let me (capture|save|record|note)[^.!?]*[.!?]|"
+    r"(i'?ll|i will|now i'?ll) (capture|save|record)[^.!?]*[.!?])"
+)
+_BACKTICKS_RE = re.compile(r"`+")
+
+
+def sanitize_agent_text(text: str) -> str:
+    """Strip leaked tool-call syntax, code fences, and 'let me save…' narration
+    from agent output so the caller never sees or hears it."""
+    if not text:
+        return text
+    text = _CODE_FENCE_RE.sub("", text)
+    text = _TOOL_CALL_RE.sub("", text)
+    text = _LANG_TAG_RE.sub("", text)
+    text = _NARRATE_RE.sub("", text)
+    text = _BACKTICKS_RE.sub("", text)
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
 # Recognized namespaces — used to warn on malformed ids without breaking the call.
 KNOWN_NAMESPACES = {"state-law", "settlements", "firms", "procedures"}
 

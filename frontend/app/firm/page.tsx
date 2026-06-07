@@ -13,6 +13,7 @@ import {
 } from '@/components/firm/dashboard/firm-dashboard-shell';
 import { FirmHomeDashboard } from '@/components/firm/dashboard/firm-home';
 import { FirmKpiStrip } from '@/components/firm/dashboard/firm-kpis';
+import { FirmMetricsPanel } from '@/components/firm/dashboard/firm-metrics-panel';
 import { GuardrailsDashboard } from '@/components/firm/dashboard/guardrails';
 import { LeadHeader } from '@/components/firm/dashboard/lead-header';
 import { MossOverview } from '@/components/firm/dashboard/moss-overview';
@@ -93,8 +94,8 @@ function FirmInfoPanel({ session }: { session: FirmSession }) {
       <h2 className="text-lg font-semibold">{session.firm_name}</h2>
       {session.city ? <p className="text-muted-foreground text-sm">{session.city}</p> : null}
       <p className="text-muted-foreground text-sm leading-relaxed">
-        Matched leads from live client intakes appear in Cases as soon as Moss routes them to your
-        firm. Open Home for Caseflowy Counsel, or start a voice briefing from any qualified lead.
+        Matched leads appear in the left sidebar and in the Cases table. Home is Caseflowy Counsel
+        with a live transcript — open any lead for the full dossier or a voice briefing.
       </p>
       <Button asChild variant="outline" size="sm">
         <Link href="/firm/login">Switch firm</Link>
@@ -197,6 +198,9 @@ export default function FirmPage() {
         setAutoBrief(next);
         localStorage.setItem('caseflow_auto_brief', next ? 'on' : 'off');
       }}
+      firmCases={firmCases}
+      selectedCaseId={selectedId}
+      onSelectCase={openCase}
     >
       {selected ? (
         <CaseDetail
@@ -210,7 +214,9 @@ export default function FirmPage() {
           onBack={() => setSelectedId(null)}
         />
       ) : view === 'home' ? (
-        <FirmHomeDashboard session={session} firmCases={firmCases} onSelectCase={openCase} />
+        <FirmHomeDashboard session={session} />
+      ) : view === 'metrics' ? (
+        <FirmMetricsPanel />
       ) : view === 'cases' ? (
         <FirmCasesView firmCases={firmCases} onSelectCase={openCase} />
       ) : view === 'overview' ? (

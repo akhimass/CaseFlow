@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { AccessToken, type AccessTokenOptions, type VideoGrant } from 'livekit-server-sdk';
+import { AccessToken, AgentDispatchClient, RoomServiceClient, type AccessTokenOptions, type VideoGrant } from 'livekit-server-sdk';
 import { randomUUID } from 'node:crypto';
 import { RoomAgentDispatch, RoomConfiguration } from '@livekit/protocol';
 
@@ -16,7 +16,7 @@ const API_KEY = process.env.LIVEKIT_API_KEY;
 const API_SECRET = process.env.LIVEKIT_API_SECRET;
 const LIVEKIT_URL = process.env.LIVEKIT_URL;
 // Agent dispatch name — must match the agent's registered name (`caseflow-agent`). See `.env.local`.
-const AGENT_NAME = process.env.AGENT_NAME || 'caseflow-agent';
+const AGENT_NAME = process.env.AGENT_NAME || 'caseflow-agent-dev';
 
 // httpOnly cookie that persists a stable per-user id across visits. Stamped into the agent
 // dispatch metadata as `{ "user_id": <uuid> }` so the agent can scope case memory per user.
@@ -83,6 +83,24 @@ export async function POST(req: Request) {
       roomName,
       roomConfig
     );
+
+    // Create the room first so it exists before we dispatch the agent.
+    // AgentDispatchClient.createDispatch requires the room to already exist.
+    const lkHttpUrl = LIVEKIT_URL.replace('wss://', 'https://').replace('ws://', 'http://');
+    try {
+      const roomService = new RoomServiceClient(lkHttpUrl, API_KEY, API_SECRET);
+      await roomService.createRoom({ name: roomName });
+      console.log('[token] room created', { room: roomName });
+
+      const dispatchClient = new AgentDispatchClient(lkHttpUrl, API_KEY, API_SECRET);
+      await dispatchClient.createDispatch(roomName, AGENT_NAME!, {
+        metadata: dispatchMetadata,
+      });
+      console.log('[token] agent dispatched', { room: roomName, agent: AGENT_NAME });
+    } catch (err) {
+      // Non-fatal: the RoomAgentDispatch in the token is the fallback.
+      console.warn('[token] room create or agent dispatch failed:', err);
+    }
 
     // Return connection details
     const data: ConnectionDetails = {

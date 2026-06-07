@@ -34,12 +34,12 @@ private struct MessageBubble: View {
         HStack(alignment: .top, spacing: 8) {
             if message.isAgent {
                 Circle()
-                    .fill(CaseFlowTheme.auraAccent(colorScheme))
+                    .fill(Color.white)
                     .frame(width: 24, height: 24)
                     .overlay(
                         Text("A")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.black)
                     )
             }
 
@@ -52,8 +52,8 @@ private struct MessageBubble: View {
                     .background(
                         RoundedRectangle(cornerRadius: 16)
                             .fill(message.isAgent
-                                  ? Color(.secondarySystemBackground)
-                                  : CaseFlowTheme.auraAccent(colorScheme).opacity(0.15))
+                                  ? Color.white.opacity(0.10)
+                                  : Color.white.opacity(0.18))
                     )
 
                 Text(message.timestamp.formatted(.dateTime.hour().minute()))

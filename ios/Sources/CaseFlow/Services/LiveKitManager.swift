@@ -15,12 +15,16 @@ final class LiveKitManager: ObservableObject {
     @Published var documentEvents: [DocumentParseEvent] = []
     @Published var isConnected = false
     @Published var errorMessage: String?
+    @Published var localVideoTrack: LocalVideoTrack?
+    @Published var isMicMuted = false
+    @Published var isAnalyzingDocument = false
 
     private let fallbackRoom = Room()
     private let tokenService = TokenService()
     private var session: Session?
     private var sessionObservation: AnyCancellable?
     private var audioLevelTask: Task<Void, Never>?
+    private var audioRouteObserver: NSObjectProtocol?
 
     var room: Room {
         session?.room ?? fallbackRoom
@@ -48,6 +52,18 @@ final class LiveKitManager: ObservableObject {
             observeSession(session)
 
             try await session.start()
+
+            // WebRTC reconfigures the audio session when remote audio tracks
+            // arrive (asynchronously, after session.start returns). Register a
+            // persistent observer so we lock to speaker on every route change.
+            audioRouteObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.routeChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                guard self?.isConnected == true else { return }
+                try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+            }
 
             syncFromSession()
             if session.agent.agentState == nil {
@@ -78,8 +94,11 @@ final class LiveKitManager: ObservableObject {
             )
         }
 
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
+        try session.setCategory(.playAndRecord, mode: .videoChat, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
         try session.setActive(true)
+        // Override immediately so the built-in speaker is the output before
+        // WebRTC starts configuring routes.
+        try? session.overrideOutputAudioPort(.speaker)
     }
 
     func disconnect() async {
@@ -87,6 +106,10 @@ final class LiveKitManager: ObservableObject {
         audioLevelTask = nil
         sessionObservation?.cancel()
         sessionObservation = nil
+        if let obs = audioRouteObserver {
+            NotificationCenter.default.removeObserver(obs)
+            audioRouteObserver = nil
+        }
 
         let activeSession = session
         session = nil
@@ -101,7 +124,38 @@ final class LiveKitManager: ObservableObject {
     }
 
     func setCamera(enabled: Bool) async throws {
-        try await room.localParticipant.setCamera(enabled: enabled)
+        let publication = try await room.localParticipant.setCamera(enabled: enabled)
+
+        guard enabled else {
+            localVideoTrack = nil
+            return
+        }
+
+        // Prefer the track from the returned publication. Publishing can lag the
+        // call returning, so poll briefly until the local video track appears.
+        if let track = publication?.track as? LocalVideoTrack {
+            localVideoTrack = track
+            return
+        }
+
+        for _ in 0..<20 {
+            if let track = room.localParticipant.localVideoTracks.first?.track as? LocalVideoTrack {
+                localVideoTrack = track
+                return
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        }
+    }
+
+    /// Toggle the local microphone. When muted, Aria stops receiving audio.
+    func toggleMic() async {
+        let newMuted = !isMicMuted
+        do {
+            try await room.localParticipant.setMicrophone(enabled: !newMuted)
+            isMicMuted = newMuted
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func sendDocumentFrame(imageData: Data, docType: String, source: String) async throws {
@@ -112,6 +166,9 @@ final class LiveKitManager: ObservableObject {
                 userInfo: [NSLocalizedDescriptionKey: "Session is not connected."]
             )
         }
+
+        // Show an "analyzing" indicator until parsed fields come back from the agent.
+        isAnalyzingDocument = true
 
         let imageBase64 = imageData.base64EncodedString()
         let payload: [String: Any] = [
@@ -247,11 +304,14 @@ final class LiveKitManager: ObservableObject {
             let event = DocumentParseEvent(docType: docType, fields: fields, rawText: rawText, timestamp: .now)
             documentEvents.insert(event, at: 0)
             if documentEvents.count > 10 { documentEvents.removeLast() }
+            // Parsed fields are back — stop the analyzing indicator.
+            isAnalyzingDocument = false
 
         case .caseUpdate:
             break
 
         case .enableVideo:
+            guard localVideoTrack == nil else { break }
             Task { try? await setCamera(enabled: true) }
         }
     }
@@ -266,6 +326,10 @@ extension LiveKitManager: RoomDelegate {
         Task { @MainActor in
             if let audioTrack = publication.track as? RemoteAudioTrack {
                 startAudioLevelPolling(track: audioTrack)
+                // The agent's audio track just arrived. WebRTC has reconfigured the
+                // audio session by this point — re-lock to speaker so the agent is
+                // audible through the built-in speaker, not the earpiece.
+                try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
             }
         }
     }

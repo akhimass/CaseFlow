@@ -13,7 +13,7 @@ struct MossResultsView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Circle()
-                            .fill(CaseFlowTheme.auraAccent(colorScheme))
+                            .fill(Color.white)
                             .frame(width: 8, height: 8)
                         Text("Knowledge Matches")
                             .font(.cfLabel)
@@ -23,8 +23,8 @@ struct MossResultsView: View {
                             .font(.cfCaption)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(CaseFlowTheme.auraAccent(colorScheme).opacity(0.15), in: Capsule())
-                            .foregroundStyle(CaseFlowTheme.auraAccent(colorScheme))
+                            .background(Color.white.opacity(0.15), in: Capsule())
+                            .foregroundStyle(Color.white)
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(CaseFlowTheme.textSecondary)
@@ -67,10 +67,10 @@ private struct MossEventCard: View {
                     .padding(8)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(CaseFlowTheme.auraAccent(colorScheme).opacity(0.07))
+                            .fill(Color.white.opacity(0.06))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(CaseFlowTheme.auraAccent(colorScheme).opacity(0.2), lineWidth: 0.5)
+                                    .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
                             )
                     )
             }

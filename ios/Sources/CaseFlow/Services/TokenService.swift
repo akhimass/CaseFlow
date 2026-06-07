@@ -9,7 +9,7 @@ actor TokenService {
            let url = URL(string: raw) {
             return url
         }
-        return URL(string: "http://localhost:3000")!
+        return URL(string: "https://caseflowy.com")!
     }()
 
     func fetchConnectionDetails(agentMetadata: [String: String] = [:]) async throws -> ConnectionDetails {
@@ -23,7 +23,7 @@ actor TokenService {
         }
 #endif
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, timeoutInterval: 30)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 

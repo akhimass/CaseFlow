@@ -20,6 +20,7 @@
 		CC000000000000000000000A /* TranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD000000000000000000000A /* TranscriptView.swift */; };
 		CD000000000000000000000A /* LiveKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE000000000000000000000A /* LiveKitManager.swift */; };
 		CE000000000000000000000A /* TokenService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF000000000000000000000A /* TokenService.swift */; };
+		E1000000000000000000000A /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0000000000000000000000A /* LocationService.swift */; };
 		CF000000000000000000000A /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000000A /* Models.swift */; };
 		D0000000000000000000000A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1000000000000000000000A /* Theme.swift */; };
 		D2000000000000000000000A /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = AF000000000000000000000A /* LiveKit */; };
@@ -40,6 +41,7 @@
 		BD000000000000000000000A /* TranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TranscriptView.swift; path = Sources/CaseFlow/Components/TranscriptView.swift; sourceTree = SOURCE_ROOT; };
 		BE000000000000000000000A /* LiveKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveKitManager.swift; path = Sources/CaseFlow/Services/LiveKitManager.swift; sourceTree = SOURCE_ROOT; };
 		BF000000000000000000000A /* TokenService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TokenService.swift; path = Sources/CaseFlow/Services/TokenService.swift; sourceTree = SOURCE_ROOT; };
+		E0000000000000000000000A /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LocationService.swift; path = Sources/CaseFlow/Services/LocationService.swift; sourceTree = SOURCE_ROOT; };
 		C0000000000000000000000A /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Models.swift; path = Sources/CaseFlow/Models/Models.swift; sourceTree = SOURCE_ROOT; };
 		C1000000000000000000000A /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Theme.swift; path = Sources/CaseFlow/Theme/Theme.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -122,6 +124,7 @@
 			children = (
 				BE000000000000000000000A /* LiveKitManager.swift */,
 				BF000000000000000000000A /* TokenService.swift */,
+				E0000000000000000000000A /* LocationService.swift */,
 			);
 			name = Services;
 			sourceTree = "<group>";
@@ -229,6 +232,7 @@
 				CC000000000000000000000A /* TranscriptView.swift in Sources */,
 				CD000000000000000000000A /* LiveKitManager.swift in Sources */,
 				CE000000000000000000000A /* TokenService.swift in Sources */,
+				E1000000000000000000000A /* LocationService.swift in Sources */,
 				CF000000000000000000000A /* Models.swift in Sources */,
 				D0000000000000000000000A /* Theme.swift in Sources */,
 			);
@@ -357,6 +361,8 @@
 				DEVELOPMENT_TEAM = SGTF5KLLFR;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera is required for your video intake session with Aria.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Caseflow connects to your local development server to start your intake session.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Your location helps us find the right attorney and look up applicable state laws for your case.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Microphone is required to speak with Aria during your intake session.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -384,6 +390,8 @@
 				DEVELOPMENT_TEAM = SGTF5KLLFR;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera is required for your video intake session with Aria.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Caseflow connects to your local development server to start your intake session.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Your location helps us find the right attorney and look up applicable state laws for your case.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Microphone is required to speak with Aria during your intake session.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

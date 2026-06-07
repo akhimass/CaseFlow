@@ -169,6 +169,13 @@ export function UnsiloedParsedPanel({ record }: { record: CaseRecord }) {
           {Object.entries(documents!).map(([docType, fields]) => {
             const thumb = fields.thumbnail as string | undefined;
             const meta = (fields._meta as DocMeta | undefined) ?? {};
+            const fieldCount = Object.keys(fields).filter(
+              (k) =>
+                !HIDDEN_KEYS.has(k) &&
+                fields[k] !== null &&
+                fields[k] !== undefined &&
+                String(fields[k]).trim() !== ''
+            ).length;
             return (
               <div key={docType} className="border-border bg-card rounded-lg border p-3">
                 <div className="flex items-center justify-between gap-2">
@@ -178,17 +185,22 @@ export function UnsiloedParsedPanel({ record }: { record: CaseRecord }) {
                   </span>
                 </div>
                 {thumb ? (
-                  <div className="mt-2">
+                  <figure className="bg-muted/40 mt-2 overflow-hidden rounded-md border">
                     <img
                       src={thumb}
-                      alt="Redacted document preview"
-                      className="border-border h-24 w-full rounded border object-cover"
+                      alt={`Redacted ${formatDocType(docType)} preview`}
+                      className="h-40 w-full bg-black/5 object-contain"
                     />
-                    <p className="text-muted-foreground/60 mt-0.5 text-[9px]">
-                      PII-redacted preview (blurred) — verify the parse matches the source
-                    </p>
+                    <figcaption className="text-muted-foreground/70 border-border/60 border-t px-2 py-1 text-[9px]">
+                      PII-redacted source image (blurred) — verify the {fieldCount} parsed fields
+                      below match the document
+                    </figcaption>
+                  </figure>
+                ) : (
+                  <div className="border-border/60 text-muted-foreground/60 mt-2 flex h-40 items-center justify-center rounded-md border border-dashed text-[10px]">
+                    No source image captured
                   </div>
-                ) : null}
+                )}
                 <FieldGrid fields={fields} />
               </div>
             );

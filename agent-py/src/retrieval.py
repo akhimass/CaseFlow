@@ -111,6 +111,41 @@ class FirmMatch:
 
 
 @dataclass
+class FirmLead:
+    """A firm match enriched with evidence correlated from the SAME Moss call.
+
+    Produced by :meth:`Retriever.firm_leads`, which fans a single
+    ``query_multi_index`` over the firms, settlements, and state-law indexes and
+    correlates each candidate firm with the comparable outcome and jurisdiction
+    rule that surfaced alongside it. This is the lead-gen card the firm dashboard
+    renders and the brief the agent speaks.
+    """
+
+    firm_id: str
+    name: str
+    phone: str
+    languages: list[str]
+    specialties: list[str]
+    score: int
+    match_reasons: list[str] = field(default_factory=list)
+    rating: str = ""
+    years_experience: str = ""
+    response_time_hours: str = ""
+    track_settlement_low: int = 0
+    track_settlement_high: int = 0
+    # Evidence correlated from the same multi-index retrieval.
+    comparable_range: str = ""
+    jurisdiction_note: str = ""
+    profile_excerpt: str = ""
+    id: str = ""
+
+    def summary(self) -> str:
+        bits = "; ".join(self.match_reasons) or "general PI coverage"
+        ev = f" Comparable outcomes {self.comparable_range}." if self.comparable_range else ""
+        return f"[cite:{self.id}] {self.name} (fit {self.score}): {bits}.{ev}"
+
+
+@dataclass
 class ProcedureSnippet:
     scenario: str
     urgency: str
@@ -230,6 +265,30 @@ class Retriever:
             result = await self._moss.query(index, query, options)
         except Exception as exc:
             logger.exception("Moss query failed (index=%s, query=%r)", index, query)
+            return [], (time.perf_counter() - start) * 1000.0, str(exc)[:200]
+        elapsed_ms = getattr(result, "time_taken_ms", None)
+        if elapsed_ms is None:
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
+        return _docs(result), float(elapsed_ms), None
+
+    async def _query_multi(
+        self, indexes: list[str], query: str, *, top_k: int
+    ) -> tuple[list[Any], float, str | None]:
+        """Search several indexes in one Moss call and return a global top-K.
+
+        Each returned doc carries ``index_name`` so the caller can split the
+        blended result back into its source streams (firms / settlements / law).
+        """
+        now = time.monotonic()
+        self._query_times = [t for t in self._query_times if now - t < 60.0]
+        self._query_times.append(now)
+        start = time.perf_counter()
+        try:
+            result = await self._moss.query_multi_index(
+                indexes, query, QueryOptions(top_k=top_k)
+            )
+        except Exception as exc:
+            logger.exception("Moss multi-index query failed (indexes=%s)", indexes)
             return [], (time.perf_counter() - start) * 1000.0, str(exc)[:200]
         elapsed_ms = getattr(result, "time_taken_ms", None)
         if elapsed_ms is None:
@@ -577,6 +636,162 @@ class Retriever:
         await self._emit("firms", query, rows, elapsed, cards)
         self._cache_store(cache_key, namespace="firms", query=query, rows=rows, cards=cards)
         return rows
+
+    # -- C2) correlated firm lead-gen (multi-index) ------------------------ #
+    async def firm_leads(
+        self, case_data: dict[str, Any], caller_location: str = ""
+    ) -> list[FirmLead]:
+        """Correlate firms with comparable outcomes and jurisdiction law in ONE call.
+
+        Fans a single ``query_multi_index`` over the firms, settlements, and
+        state-law indexes using the full case narrative, then attaches the
+        comparable settlement range and the jurisdiction rule that surfaced
+        alongside each firm — so every lead carries its own grounding evidence.
+        """
+        state = (case_data.get("state") or caller_location or "CA").strip().upper()[:2]
+        language = (case_data.get("language") or "en").lower()
+        lang_code = "es" if language.startswith("es") else "en"
+        case_type = _norm(case_data.get("accident_type") or "auto")
+        severity = _norm(case_data.get("severity") or "medium")
+        fault = _norm(case_data.get("fault") or "")
+        injuries = str(case_data.get("injuries") or "")
+        est_value = _as_int(case_data.get("estimated_value")) or _SEVERITY_VALUE.get(
+            severity, 60_000
+        )
+        location = caller_location.strip().lower()
+
+        cache_key = f"firm-leads:{state}:{lang_code}:{case_type}:{severity}:{fault}:{est_value}:{location}"
+        if self._cache_get(cache_key) is not None:
+            hit = await self._emit_cached(cache_key)
+            if hit is not None:
+                return hit
+
+        narrative = (
+            f"{case_type.replace('_', ' ')} {severity} severity {fault} fault "
+            f"{injuries} in {state} {caller_location}. Best personal injury firm "
+            f"with {lang_code} intake and a strong track record for this case."
+        ).replace("  ", " ").strip()
+
+        docs, elapsed, err = await self._query_multi(
+            [FIRMS_INDEX, SETTLEMENTS_INDEX, STATE_LAW_INDEX], narrative, top_k=15
+        )
+        if not docs and err:
+            await self._emit("firm_leads", narrative, [], elapsed, [], error=err)
+            return []
+
+        firm_docs = [d for d in docs if getattr(d, "index_name", "") == FIRMS_INDEX]
+        settle_docs = [d for d in docs if getattr(d, "index_name", "") == SETTLEMENTS_INDEX]
+        law_docs = [d for d in docs if getattr(d, "index_name", "") == STATE_LAW_INDEX]
+
+        # Correlated evidence shared across leads (best comparable + jurisdiction rule).
+        comparable_range = ""
+        for d in settle_docs:
+            m = _meta(d)
+            lo, hi = _as_int(m.get("amount_low")), _as_int(m.get("amount_high"))
+            if lo or hi:
+                comparable_range = f"${lo:,}-${hi:,}"
+                break
+        jurisdiction_note = ""
+        sol_doc = next(
+            (d for d in law_docs if _meta(d).get("topic") == "sol"),
+            law_docs[0] if law_docs else None,
+        )
+        if sol_doc is not None:
+            jurisdiction_note = (getattr(sol_doc, "text", "") or "").strip()[:160]
+
+        leads: list[FirmLead] = []
+        for d in firm_docs:
+            m = _meta(d)
+            jurisdictions = _split_list(m.get("jurisdictions", ""))
+            languages = _split_list(m.get("languages", ""))
+            specialties = _split_list(m.get("specialties", ""))
+            min_value = _as_int(m.get("min_case_value"))
+
+            # Hard gates: jurisdiction + language + value floor.
+            if jurisdictions and state not in jurisdictions:
+                continue
+            multilingual = len(languages) >= 3
+            if languages and lang_code not in languages and not multilingual:
+                continue
+            if est_value < min_value:
+                continue
+
+            score = 50
+            reasons: list[str] = []
+            if case_type in specialties:
+                score += 25
+                reasons.append(f"specialty match for {case_type.replace('_', ' ')}")
+            elif "general_pi" in specialties:
+                score += 12
+                reasons.append("handles all PI types")
+            if lang_code in languages:
+                score += 12
+                reasons.append(
+                    "Spanish-speaking intake" if lang_code == "es" else "English intake"
+                )
+            # Semantic correlation: the enriched profile body matched the case.
+            sem = _score(d)
+            if sem is not None and sem > 0:
+                score += 8
+                reasons.append("track record matches this case")
+            if min_value > 0 and est_value >= min_value:
+                score += 5
+                reasons.append(f"meets ${min_value:,} case-value floor")
+            county = m.get("county", "").lower()
+            if location and county and any(tok in county for tok in location.split()):
+                score += 8
+                reasons.append(f"local presence in {m.get('county')}")
+
+            firm_id = m.get("firm_id", getattr(d, "id", ""))
+            leads.append(
+                FirmLead(
+                    firm_id=firm_id,
+                    name=m.get("name", ""),
+                    phone=m.get("phone", ""),
+                    languages=languages,
+                    specialties=specialties,
+                    score=min(100, score),
+                    match_reasons=reasons,
+                    rating=m.get("rating", ""),
+                    years_experience=m.get("years_experience", ""),
+                    response_time_hours=m.get("response_time_hours", ""),
+                    track_settlement_low=_as_int(m.get("track_settlement_low")),
+                    track_settlement_high=_as_int(m.get("track_settlement_high")),
+                    comparable_range=comparable_range,
+                    jurisdiction_note=jurisdiction_note,
+                    profile_excerpt=(getattr(d, "text", "") or "").strip()[:220],
+                    id=f"firms:{firm_id}",
+                )
+            )
+
+        leads.sort(key=lambda f: f.score, reverse=True)
+        leads = leads[:3]
+
+        cards = [
+            {
+                "id": ld.id,
+                "title": ld.name,
+                "subtitle": ", ".join(ld.specialties[:3]),
+                "score": ld.score,
+                "phone": ld.phone,
+                "languages": ld.languages,
+                "rating": ld.rating,
+                "years_experience": ld.years_experience,
+                "response_time_hours": ld.response_time_hours,
+                "track_settlement_low": ld.track_settlement_low,
+                "track_settlement_high": ld.track_settlement_high,
+                "comparable_range": ld.comparable_range,
+                "jurisdiction_note": ld.jurisdiction_note,
+                "reasons": ld.match_reasons,
+                "text": ld.profile_excerpt,
+            }
+            for ld in leads
+        ]
+        await self._emit("firm_leads", narrative, leads, elapsed, cards)
+        self._cache_store(
+            cache_key, namespace="firm_leads", query=narrative, rows=leads, cards=cards
+        )
+        return leads
 
     # -- D) procedural guidance -------------------------------------------- #
     async def procedures(self, scenario: str) -> list[ProcedureSnippet]:

@@ -7,6 +7,15 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
+export async function GET(_req: Request, ctx: { params: Promise<{ case_id: string }> }) {
+  const { case_id } = await ctx.params;
+  const record = getCaseStore().get(case_id);
+  if (!record) {
+    return NextResponse.json({ error: 'Case not found', case_id }, { status: 404 });
+  }
+  return NextResponse.json({ case: record });
+}
+
 const REGION = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'us-west-2';
 const BUCKET = process.env.AWS_S3_BUCKET ?? 'caseflow-cases-dev';
 const SENSITIVE_BUCKET = process.env.AWS_S3_SENSITIVE_BUCKET ?? 'caseflow-sensitive';

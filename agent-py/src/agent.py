@@ -67,7 +67,7 @@ from privacy_context import bind_redaction_session
 from privacy_ops import build_operational_case
 from pronunciation import register_pronunciation_terms, terms_from_parsed
 from redacting_llm import RedactingLLM
-from retrieval import ALL_KNOWLEDGE_INDEXES, Retriever
+from retrieval import ALL_KNOWLEDGE_INDEXES, Retriever, rows_to_dicts
 from slot_extraction import extract_slots, slots_above_threshold
 from supabase_store import _configured as supabase_configured
 from tools import (
@@ -268,7 +268,7 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
     - "Casos similares en California han llegado a acuerdos entre $30,000 y
       $80,000 [cite:settlements:ca-rear-end-med-contested]"
     - "En California tiene dos años para presentar su demanda [cite:state-law:ca-sol]"
-    - "Le voy a conectar con Martinez & Associates [cite:firms:martinez]"
+    - "Le voy a conectar con Pacific Heights Injury Law [cite:firms:pacific_heights]"
 
     Emit citations for every claim you make that came from retrieval. Multiple
     citations per response are fine. Citation IDs must match exactly the
@@ -1104,12 +1104,21 @@ class Assistant(Agent):
     ) -> str:
         """Find the top partner firms for this case from the Moss firms index.
 
-        Filters the curated firm roster by jurisdiction, caller language, specialty,
-        and case-value floor, using the case data collected so far.
+        Correlates firms with comparable settlement outcomes and the jurisdiction
+        filing rule in a single Moss multi-index call, so each lead comes back with
+        its own grounding evidence (track record, comparable range, filing window).
 
         Args:
             caller_location: City or county for local-presence matching (optional).
         """
+        leads = await self._retriever.firm_leads(self._case_data, caller_location)
+        if leads:
+            await self._update_case(
+                "firm_leads_retrieved",
+                {"moss_firm_leads": rows_to_dicts(leads)},
+            )
+            return "\n\n".join(ld.summary() for ld in leads)
+        # Fall back to the basic roster match if multi-index correlation returns nothing.
         rows = await self._retriever.firms(self._case_data, caller_location)
         if rows:
             await self._update_case(
@@ -1411,6 +1420,8 @@ async def my_agent(ctx: JobContext):
     case_id: str | None = None
     consent_given_at: str | None = None
     caller_location: str | None = None
+    mode = "intake"
+    firm_id: str | None = None
     if ctx.job.metadata:
         try:
             meta = json.loads(ctx.job.metadata)
@@ -1418,8 +1429,20 @@ async def my_agent(ctx: JobContext):
             case_id = meta.get("case_id")
             consent_given_at = meta.get("consent_given_at")
             caller_location = meta.get("caller_location")
+            mode = meta.get("mode", "intake")
+            firm_id = meta.get("firm_id")
         except json.JSONDecodeError:
             logger.warning("Invalid job metadata; using default user_id")
+
+    # Firm-side ambient briefing persona (Caseflow Counsel): a male-voiced agent
+    # that narrates a matched lead to the attorney and answers follow-ups. Routed
+    # through this same worker via dispatch metadata so the frontend reuses the
+    # existing /api/token path.
+    if mode == "firm_briefing" and case_id:
+        from firm_agent import run_firm_briefing_session
+
+        await run_firm_briefing_session(ctx, case_id=case_id, firm_id=firm_id)
+        return
 
     voice_state = VoiceSessionState(metrics=MetricsTracker())
     minimax_tts, _minimax_inner = build_caseflow_voice(state=voice_state)

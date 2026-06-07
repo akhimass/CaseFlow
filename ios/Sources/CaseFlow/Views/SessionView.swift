@@ -151,13 +151,15 @@ struct SessionView: View {
 
     private var controlBar: some View {
         HStack(spacing: 20) {
-            // Microphone
+            // Microphone (mute toggle)
             ControlButton(
-                icon: "mic.fill",
-                label: "Mic",
-                isActive: true,
-                color: CaseFlowTheme.auraAccent(colorScheme)
-            ) {}
+                icon: manager.isMicMuted ? "mic.slash.fill" : "mic.fill",
+                label: manager.isMicMuted ? "Muted" : "Mic",
+                isActive: !manager.isMicMuted,
+                color: manager.isMicMuted ? .red : CaseFlowTheme.auraAccent(colorScheme)
+            ) {
+                Task { await manager.toggleMic() }
+            }
 
             // Camera toggle
             ControlButton(

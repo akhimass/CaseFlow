@@ -17,6 +17,7 @@ final class LiveKitManager: ObservableObject {
     @Published var latestCaseUpdate: CaseUpdate?
     @Published var cameraEnabled = false
     @Published var capturingDocument = false
+    @Published var isMicMuted = false
     @Published var isConnected = false
     @Published var errorMessage: String?
 
@@ -123,6 +124,17 @@ final class LiveKitManager: ObservableObject {
         } else {
             capturerAttached = false
             frameCapturer.reset()
+        }
+    }
+
+    /// Toggle the local microphone. When muted, Aria stops receiving audio.
+    func toggleMic() async {
+        let newMuted = !isMicMuted
+        do {
+            try await room.localParticipant.setMicrophone(enabled: !newMuted)
+            isMicMuted = newMuted
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

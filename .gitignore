@@ -32,3 +32,4 @@ firstcall-reference/
 notes/*
 !notes/.gitkeep
 .vercel
+.pnpm-store/

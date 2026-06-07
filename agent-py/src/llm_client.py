@@ -17,6 +17,14 @@ logger = logging.getLogger("agent.llm_client")
 DEFAULT_TIMEOUT_SECONDS = 8.0
 
 
+def _get_env(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.getenv(name, "")
+        if value:
+            return value
+    return default
+
+
 def _get_int_env(name: str, default: int) -> int:
     value = os.getenv(name, "")
     if not value:
@@ -45,22 +53,33 @@ class OpenAIChatLLM(llm.LLM):
     def __init__(
         self,
         *,
-        client: openai.AsyncClient,
+        api_key: str,
         model: str,
         provider: str,
         default_temperature: float,
         case_id: str | None,
         max_tokens: int,
         label: str,
+        base_url: str | None = None,
     ) -> None:
         super().__init__()
-        self._client = client
+        self._client: openai.AsyncClient | None = None
+        self._api_key = api_key
+        self._base_url = base_url
         self._model = model
         self._provider = provider
         self._default_temperature = default_temperature
         self._case_id = case_id
         self._max_tokens = max_tokens
         self._label = label
+
+    def _ensure_client(self) -> openai.AsyncClient:
+        if self._client is None:
+            client_kwargs: dict[str, Any] = {"api_key": self._api_key or "placeholder"}
+            if self._base_url:
+                client_kwargs["base_url"] = self._base_url
+            self._client = openai.AsyncClient(**client_kwargs)
+        return self._client
 
     @property
     def model(self) -> str:
@@ -110,7 +129,7 @@ class OpenAIChatLLM(llm.LLM):
             provider=self._provider,
             inference_class=None,
             strict_tool_schema=True,
-            client=self._client,
+            client=self._ensure_client(),
             chat_ctx=chat_ctx,
             tools=tools or [],
             conn_options=conn_options,
@@ -118,7 +137,8 @@ class OpenAIChatLLM(llm.LLM):
         )
 
     async def aclose(self) -> None:
-        await self._client.close()
+        if self._client is not None:
+            await self._client.close()
 
 
 class TrueFoundryLLM(llm.LLM):
@@ -138,23 +158,23 @@ class TrueFoundryLLM(llm.LLM):
 
         if primary_llm is None:
             primary_llm = OpenAIChatLLM(
-                client=openai.AsyncClient(
-                    api_key=os.getenv("TRUEFOUNDRY_API_KEY", ""),
-                    base_url=os.getenv("TRUEFOUNDRY_GATEWAY_URL", ""),
-                ),
-                model=os.getenv("TRUEFOUNDRY_MODEL", "openai/gpt-4o"),
+                api_key=_get_env("OPENAI_API_KEY", "TRUEFOUNDRY_API_KEY"),
+                model=_get_env("OPENAI_MODEL", "TRUEFOUNDRY_MODEL", default="openai/gpt-4o"),
                 provider="truefoundry",
                 default_temperature=self._primary_temperature,
                 case_id=case_id,
                 max_tokens=self._max_tokens,
                 label="truefoundry",
+                base_url=_get_env(
+                    "OPENAI_BASE_URL",
+                    "TRUEFOUNDRY_GATEWAY_URL",
+                    default="https://gateway.truefoundry.ai/api/llm/openai",
+                ),
             )
 
         if fallback_llm is None:
             fallback_llm = OpenAIChatLLM(
-                client=openai.AsyncClient(
-                    api_key=os.getenv("OPENAI_API_KEY", ""),
-                ),
+                api_key=os.getenv("OPENAI_API_KEY", ""),
                 model=os.getenv("OPENAI_FALLBACK_MODEL", "gpt-4o"),
                 provider="openai",
                 default_temperature=self._primary_temperature,

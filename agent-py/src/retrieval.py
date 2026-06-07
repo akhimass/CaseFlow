@@ -30,8 +30,29 @@ from typing import Any, ClassVar
 from moss import QueryOptions
 
 from feedback_store import FEEDBACK_WEIGHT, FIRM_FEEDBACK_POINTS
+from geo import state_from_location
 
 logger = logging.getLogger("retrieval")
+
+
+def _resolve_state(case_data: dict[str, Any], caller_location: str = "") -> str:
+    """Two-letter state for firm/jurisdiction gating.
+
+    Decodes a city/county ("San Francisco" -> CA) instead of blindly slicing the
+    first two letters (which turned "San Francisco" into "SA" and matched no firm).
+    Prefers an explicit 2-letter ``state``; otherwise geo-decodes the state field,
+    the caller's location, or the crash location.
+    """
+    raw = str(case_data.get("state") or "").strip()
+    if len(raw) == 2 and raw.isalpha():
+        return raw.upper()
+    return (
+        state_from_location(raw)
+        or state_from_location(caller_location or "")
+        or state_from_location(str(case_data.get("location") or ""))
+        or "CA"
+    )
+
 
 # Index names (overridable via env; default to the knowledge/ subdir names).
 STATE_LAW_INDEX = os.getenv("MOSS_STATE_LAW_INDEX", "state-law")
@@ -145,7 +166,11 @@ class FirmLead:
 
     def summary(self) -> str:
         bits = "; ".join(self.match_reasons) or "general PI coverage"
-        ev = f" Comparable outcomes {self.comparable_range}." if self.comparable_range else ""
+        ev = (
+            f" Comparable outcomes {self.comparable_range}."
+            if self.comparable_range
+            else ""
+        )
         return f"[cite:{self.id}] {self.name} (fit {self.score}): {bits}.{ev}"
 
 
@@ -261,8 +286,10 @@ class Retriever:
             return rows
         return sorted(
             rows,
-            key=lambda r: (getattr(r, "score", None) or 0.0)
-            + FEEDBACK_WEIGHT * self._fb(getattr(r, "id", "")),
+            key=lambda r: (
+                (getattr(r, "score", None) or 0.0)
+                + FEEDBACK_WEIGHT * self._fb(getattr(r, "id", ""))
+            ),
             reverse=True,
         )
 
@@ -468,7 +495,10 @@ class Retriever:
         )
         if not docs:  # fall back to state-only if the topic pairing missed
             docs, elapsed, err = await self._query(
-                STATE_LAW_INDEX, query, top_k=3, metadata_filter=_eq("state", state_code)
+                STATE_LAW_INDEX,
+                query,
+                top_k=3,
+                metadata_filter=_eq("state", state_code),
             )
         if not docs and err:
             await self._emit("state-law", query, [], elapsed, [], error=err)
@@ -501,7 +531,9 @@ class Retriever:
             for r in rows
         ]
         await self._emit("state-law", query, rows, elapsed, cards)
-        self._cache_store(cache_key, namespace="state-law", query=query, rows=rows, cards=cards)
+        self._cache_store(
+            cache_key, namespace="state-law", query=query, rows=rows, cards=cards
+        )
         return rows
 
     # -- B) comparable settlements ----------------------------------------- #
@@ -538,7 +570,10 @@ class Retriever:
         )
         if not docs:  # widen to accident type across jurisdictions
             docs, elapsed, err = await self._query(
-                SETTLEMENTS_INDEX, query, top_k=6, metadata_filter=_eq("accident_type", atype)
+                SETTLEMENTS_INDEX,
+                query,
+                top_k=6,
+                metadata_filter=_eq("accident_type", atype),
             )
         if not docs:  # last resort: pure semantic
             docs, elapsed, err = await self._query(SETTLEMENTS_INDEX, query, top_k=6)
@@ -599,7 +634,7 @@ class Retriever:
     async def firms(
         self, case_data: dict[str, Any], caller_location: str = ""
     ) -> list[FirmMatch]:
-        state = (case_data.get("state") or caller_location or "CA").strip().upper()[:2]
+        state = _resolve_state(case_data, caller_location)
         language = (case_data.get("language") or "en").lower()
         lang_code = "es" if language.startswith("es") else "en"
         case_type = _norm(case_data.get("accident_type") or "auto")
@@ -697,7 +732,9 @@ class Retriever:
             for r in rows
         ]
         await self._emit("firms", query, rows, elapsed, cards)
-        self._cache_store(cache_key, namespace="firms", query=query, rows=rows, cards=cards)
+        self._cache_store(
+            cache_key, namespace="firms", query=query, rows=rows, cards=cards
+        )
         return rows
 
     # -- C2) correlated firm lead-gen (multi-index) ------------------------ #
@@ -711,7 +748,7 @@ class Retriever:
         comparable settlement range and the jurisdiction rule that surfaced
         alongside each firm — so every lead carries its own grounding evidence.
         """
-        state = (case_data.get("state") or caller_location or "CA").strip().upper()[:2]
+        state = _resolve_state(case_data, caller_location)
         language = (case_data.get("language") or "en").lower()
         lang_code = "es" if language.startswith("es") else "en"
         case_type = _norm(case_data.get("accident_type") or "auto")
@@ -730,10 +767,14 @@ class Retriever:
                 return hit
 
         narrative = (
-            f"{case_type.replace('_', ' ')} {severity} severity {fault} fault "
-            f"{injuries} in {state} {caller_location}. Best personal injury firm "
-            f"with {lang_code} intake and a strong track record for this case."
-        ).replace("  ", " ").strip()
+            (
+                f"{case_type.replace('_', ' ')} {severity} severity {fault} fault "
+                f"{injuries} in {state} {caller_location}. Best personal injury firm "
+                f"with {lang_code} intake and a strong track record for this case."
+            )
+            .replace("  ", " ")
+            .strip()
+        )
 
         docs, elapsed, err = await self._query_multi(
             [FIRMS_INDEX, SETTLEMENTS_INDEX, STATE_LAW_INDEX], narrative, top_k=15
@@ -743,7 +784,9 @@ class Retriever:
             return []
 
         firm_docs = [d for d in docs if getattr(d, "index_name", "") == FIRMS_INDEX]
-        settle_docs = [d for d in docs if getattr(d, "index_name", "") == SETTLEMENTS_INDEX]
+        settle_docs = [
+            d for d in docs if getattr(d, "index_name", "") == SETTLEMENTS_INDEX
+        ]
         law_docs = [d for d in docs if getattr(d, "index_name", "") == STATE_LAW_INDEX]
 
         # Correlated evidence shared across leads (best comparable + jurisdiction rule).
@@ -802,7 +845,9 @@ class Retriever:
                 reasons.append(f"meets ${min_value:,} case-value floor")
             county = m.get("county", "").lower()
             profile = (getattr(d, "text", "") or "").lower()
-            loc_tokens = [t.strip(",.") for t in location.split() if len(t.strip(",.")) > 3]
+            loc_tokens = [
+                t.strip(",.") for t in location.split() if len(t.strip(",.")) > 3
+            ]
             if location and any(tok in county or tok in profile for tok in loc_tokens):
                 score += 8
                 reasons.append(f"local presence near {caller_location}")

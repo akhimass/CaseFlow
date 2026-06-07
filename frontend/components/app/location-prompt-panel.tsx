@@ -10,8 +10,8 @@ const DEFAULT_LOCATION = 'San Francisco, CA';
 const COPY = {
   en: {
     eyebrow: 'Step 2 of 2',
-    title: 'Where did the accident happen?',
-    hint: 'We use your city to match you with local participating firms and California injury law.',
+    title: 'Where are you located?',
+    hint: 'We use your location to connect you with nearby participating firms. You can tell the agent where the accident happened during your consult.',
     placeholder: 'San Francisco, CA',
     useLocation: 'Use my location',
     confirm: 'Continue to intake',
@@ -26,8 +26,8 @@ const COPY = {
   },
   es: {
     eyebrow: 'Paso 2 de 2',
-    title: '¿Dónde ocurrió el accidente?',
-    hint: 'Usamos su ciudad para conectarle con bufetes locales participantes y la ley de lesiones de California.',
+    title: '¿Dónde se encuentra?',
+    hint: 'Usamos su ubicación para conectarle con bufetes participantes cercanos. Puede decirle al asistente dónde ocurrió el accidente durante su consulta.',
     placeholder: 'San Francisco, CA',
     useLocation: 'Usar mi ubicación',
     confirm: 'Continuar con la consulta',

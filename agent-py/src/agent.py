@@ -252,7 +252,15 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
     9. Save each field with save_case_field as you learn it.
     10. Call compute_case_strength (which also estimates case value from the
         financials) and match_firm before closing.
-    11. Close by confirming a matched firm will reach out the next morning.
+    11. Close by naming the matched firm and confirming they will reach out the
+        next morning. Always connect the caller with a firm — never end by saying
+        you couldn't find a match.
+
+    Note on location: the only location you ask the caller about is where the
+    *accident* happened (it sets the jurisdiction for the law and comparables).
+    The caller's own location is already known from the app and is used
+    automatically to find nearby firms — never ask them to confirm or share where
+    they are for matching.
 
     # Case-type notes
 
@@ -320,12 +328,16 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
     - retrieve_comparables(accident_type, jurisdiction, severity, fault) — pull
       comparable settlement ranges. Call this once you have accident type and
       severity.
-    - retrieve_matching_firms(case_data, caller_location) — pull top matching
-      firms. Call this only after you have enough case context (case type,
-      jurisdiction, language preference, severity). You do NOT need to know which
+    - retrieve_matching_firms(case_data) — pull top matching firms. Call this
+      once you have enough case context (case type, jurisdiction, language,
+      severity). The caller's own location is already known from the app and is
+      used automatically to find nearby firms — do NOT ask the caller to confirm
+      or share their location for matching. You also do NOT need to know which
       firm handles which case type in advance — Moss matches firms by semantic
       similarity between the case profile and firm specialties, accounting for
-      case type, jurisdiction, language, and severity. Trust the retrieval.
+      case type, jurisdiction, language, and severity. Trust the retrieval, and
+      always surface at least one firm to connect them with — never tell the
+      caller there is no match.
     - retrieve_procedural_guidance(scenario) — pull what-to-do checklists. Call
       this when the caller asks "what should I do" or when you proactively
       volunteer next steps.
@@ -450,6 +462,16 @@ class Assistant(Agent):
         self._caller_location = userdata.caller_location
         self._language = userdata.language
         self._case_data = userdata.case_data
+        # The app already knows the caller's location — decode its state up front so
+        # firm matching, jurisdictional law, and comparables work without asking the
+        # caller to confirm where they are. The crash location (asked in-conversation)
+        # can still override this for the jurisdiction of the claim.
+        if (
+            self._caller_location
+            and not self._case_data.get("state")
+            and (decoded := state_from_location(self._caller_location))
+        ):
+            self._case_data["state"] = decoded
         self._moss = MossClient(
             os.getenv("MOSS_PROJECT_ID"), os.getenv("MOSS_PROJECT_KEY")
         )
@@ -1439,9 +1461,14 @@ class Assistant(Agent):
         its own grounding evidence (track record, comparable range, filing window).
 
         Args:
-            caller_location: City or county for local-presence matching (optional).
+            caller_location: City or county for local-presence matching. Optional —
+                the caller's location is already known from the app and used
+                automatically; only pass this to override it.
         """
-        leads = await self._retriever.firm_leads(self._case_data, caller_location)
+        # The caller's location is captured by the app; use it automatically so we
+        # never have to ask them to confirm where they are.
+        location = (caller_location or self._caller_location or "").strip()
+        leads = await self._retriever.firm_leads(self._case_data, location)
         if leads:
             lead_dicts = rows_to_dicts(leads)
             await self._update_case(
@@ -1453,13 +1480,24 @@ class Assistant(Agent):
             await self._publish_firm_recommendations(lead_dicts)
             return "\n\n".join(ld.summary() for ld in leads)
         # Fall back to the basic roster match if multi-index correlation returns nothing.
-        rows = await self._retriever.firms(self._case_data, caller_location)
+        rows = await self._retriever.firms(self._case_data, location)
         if rows:
             await self._update_case(
                 "firms_retrieved",
                 {"moss_firm_matches": [r.__dict__ for r in rows]},
             )
             return "\n\n".join(r.summary() for r in rows)
+        # Last resort: never dead-end the caller. The local roster (kb/firms.json)
+        # always has jurisdiction-matched firms, so match and surface them.
+        result = match_firm(self._case_data, location)
+        matches = result.get("matches") or []
+        if matches:
+            await self._update_case("firms_retrieved", {"matches": matches, **result})
+            await self._publish_firm_recommendations(matches)
+            return "\n\n".join(
+                f"{m.get('name', 'Firm')} — {m.get('phone', '')}".strip(" —")
+                for m in matches[:3]
+            )
         return "No matching firms found for this case profile."
 
     @function_tool()

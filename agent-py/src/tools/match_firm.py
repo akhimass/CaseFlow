@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from geo import state_from_location
 from tools.case_strength import compute_case_strength
 from tools.firms_data import load_firms
 
@@ -19,7 +20,9 @@ def _normalize_case_type(case_type: str) -> str:
     return value
 
 
-def _location_boost(firm: dict[str, Any], caller_location: str) -> tuple[int, str | None]:
+def _location_boost(
+    firm: dict[str, Any], caller_location: str
+) -> tuple[int, str | None]:
     loc = (caller_location or "").strip().lower()
     if not loc:
         return 0, None
@@ -37,9 +40,10 @@ def _location_boost(firm: dict[str, Any], caller_location: str) -> tuple[int, st
             label = token.title() if token else "local area"
             return 12, f"Local San Francisco presence ({label})"
 
-    if any(tok in loc for tok in ("san francisco", "sf", "bay area")):
-        if "san francisco" in location or "sf" in tokens:
-            return 8, "Serves San Francisco callers"
+    if any(tok in loc for tok in ("san francisco", "sf", "bay area")) and (
+        "san francisco" in location or "sf" in tokens
+    ):
+        return 8, "Serves San Francisco callers"
 
     return 0, None
 
@@ -47,7 +51,11 @@ def _location_boost(firm: dict[str, Any], caller_location: str) -> tuple[int, st
 def match_firm(case_data: dict[str, Any], caller_location: str = "") -> dict[str, Any]:
     strength = compute_case_strength(case_data)["score"]
     location = (caller_location or case_data.get("location") or "").strip()
-    state = (case_data.get("state") or location or "CA").upper()[:2]
+    raw_state = str(case_data.get("state") or "").strip()
+    if len(raw_state) == 2 and raw_state.isalpha():
+        state = raw_state.upper()
+    else:
+        state = state_from_location(raw_state) or state_from_location(location) or "CA"
     language = (case_data.get("language") or "en").lower()
     lang_code = "es" if language.startswith("es") else "en"
     case_type = _normalize_case_type(str(case_data.get("accident_type") or "mva"))
@@ -61,7 +69,10 @@ def match_firm(case_data: dict[str, Any], caller_location: str = "") -> dict[str
             continue
         if strength < firm.get("min_strength", 0) and "high_value" in specialties:
             continue
-        if lang_code not in languages and firm["firm_id"] not in _BILINGUAL_FALLBACK_FIRMS:
+        if (
+            lang_code not in languages
+            and firm["firm_id"] not in _BILINGUAL_FALLBACK_FIRMS
+        ):
             continue
 
         match_score = strength

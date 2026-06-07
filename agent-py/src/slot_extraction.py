@@ -28,6 +28,13 @@ ALLOWED_FIELDS = frozenset(
         "treatment",
         "prior_representation",
         "caller_name",
+        # Identity + vehicle + financials for case valuation (intake build-out).
+        "vehicle",
+        "medical_bills",
+        "lost_wages",
+        "police_involved",
+        "ongoing_treatment",
+        "employment_status",
     }
 )
 
@@ -136,6 +143,29 @@ def _rules_extract(transcript: str, language: str) -> list[ExtractedSlot]:
         for p in ("already have a lawyer", "ya tengo abogado", "otro abogado")
     ):
         slots.append(ExtractedSlot("prior_representation", "yes", 0.85, "rules"))
+
+    # Police involvement.
+    if any(
+        p in lower
+        for p in ("police", "officer", "filed a report", "policía", "policia", "patrulla")
+    ):
+        slots.append(ExtractedSlot("police_involved", "yes", 0.8, "rules"))
+
+    # Lost wages / missed work.
+    if any(
+        p in lower
+        for p in ("missed work", "lost wages", "couldn't work", "could not work",
+                  "out of work", "falté al trabajo", "no pude trabajar", "perdí trabajo")
+    ):
+        slots.append(ExtractedSlot("lost_wages", "reported missed work", 0.78, "rules"))
+
+    # Medical bills — a dollar amount mentioned near medical/bill/hospital terms.
+    bill = re.search(
+        r"(?:bill|medical|hospital|cuenta|factura|cost)[^$]{0,40}(\$?\s?[\d,]{3,})",
+        lower,
+    )
+    if bill:
+        slots.append(ExtractedSlot("medical_bills", bill.group(1).strip(), 0.76, "rules"))
 
     return [s for s in slots if s.field_name in ALLOWED_FIELDS]
 

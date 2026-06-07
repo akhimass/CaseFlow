@@ -18,7 +18,9 @@ export function formatUsd(value: number): string {
 
 /** Best-effort estimated case value used for pipeline KPIs. */
 export function estimatedValue(record: CaseRecord): number {
-  const explicit = Number(record.est_value ?? 0);
+  // Prefer the value the agent computed from financials (medical bills + lost
+  // wages × severity); fall back to a legacy field, then a score-based estimate.
+  const explicit = Number(record.estimated_value ?? record.est_value ?? 0);
   if (explicit > 0) return explicit;
   const score = Number(record.score ?? record.case_strength ?? 0);
   return Math.round((score / 100) * 90000);

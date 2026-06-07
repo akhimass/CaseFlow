@@ -5,20 +5,32 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from slot_extraction import ALLOWED_FIELDS
-
 DEFAULT_THRESHOLD = float(os.getenv("CASE_COMPLETENESS_THRESHOLD", "0.7"))
+
+# The essential lead. Completeness (which gates intake-summary generation) is
+# measured over these core facts only — the financial / enrichment fields
+# (medical_bills, lost_wages, vehicle, police_involved, ...) sharpen a lead but
+# must not delay the summary by raising the bar.
+CORE_FIELDS = frozenset(
+    {
+        "accident_type",
+        "accident_date",
+        "state",
+        "location",
+        "injuries",
+        "fault_claim",
+        "treatment",
+        "prior_representation",
+        "caller_name",
+    }
+)
 
 
 def case_completeness(case_data: dict[str, Any]) -> float:
-    if not ALLOWED_FIELDS:
+    if not CORE_FIELDS:
         return 0.0
-    filled = sum(
-        1
-        for field in ALLOWED_FIELDS
-        if _has_value(case_data.get(field))
-    )
-    return filled / len(ALLOWED_FIELDS)
+    filled = sum(1 for field in CORE_FIELDS if _has_value(case_data.get(field)))
+    return filled / len(CORE_FIELDS)
 
 
 def completeness_crossed(

@@ -64,10 +64,18 @@ export function LeadHeader({ record }: { record: CaseRecord }) {
 
   const fields: Array<[string, string | undefined]> = [
     ['Injuries', record.injuries as string | undefined],
+    ['Vehicle', record.vehicle as string | undefined],
     ['Reported fault', record.fault_claim as string | undefined],
+    ['Police', record.police_involved as string | undefined],
+    ['Medical bills', record.medical_bills as string | undefined],
+    ['Lost wages', record.lost_wages as string | undefined],
+    ['Treatment', (record.ongoing_treatment ?? record.treatment) as string | undefined],
     ['Location', (record.caller_location ?? record.location) as string | undefined],
     ['Jurisdiction', record.state as string | undefined],
+    ['Prior representation', record.prior_representation as string | undefined],
   ];
+  const callerName = String(record.caller_name ?? record.caller_id ?? record.case_id ?? '');
+  const valueRange = record.value_range ? String(record.value_range) : '';
 
   return (
     <section className="border-border bg-card rounded-2xl border p-5 sm:p-6">
@@ -78,9 +86,7 @@ export function LeadHeader({ record }: { record: CaseRecord }) {
             {accident ? <Badge>{ACCIDENT_LABELS[accident] ?? accident}</Badge> : null}
             {language ? <Badge>{LANGUAGE_LABELS[language] ?? language}</Badge> : null}
           </div>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight">
-            {String(record.caller_id ?? record.case_id)}
-          </h1>
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight">{callerName}</h1>
 
           <dl className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-2">
             {fields.map(([label, value]) =>
@@ -105,6 +111,11 @@ export function LeadHeader({ record }: { record: CaseRecord }) {
             <div className="mt-1 text-2xl font-bold text-emerald-600 tabular-nums">
               {formatUsd(estimatedValue(record))}
             </div>
+            {valueRange ? (
+              <div className="text-muted-foreground/70 mt-0.5 text-[11px] tabular-nums">
+                range {valueRange}
+              </div>
+            ) : null}
             <Button asChild size="sm" className="mt-3 w-full">
               <Link href={`/firm/brief/${String(record.case_id)}`}>Brief me on this case</Link>
             </Button>

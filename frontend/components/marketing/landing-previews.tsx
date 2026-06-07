@@ -12,7 +12,7 @@ const SIDEBAR_ITEMS = ['Home', 'Metrics', 'Cases', 'Firm', 'Overview'] as const;
 
 const AGENT_TRANSCRIPT = [
   { role: 'aria', text: 'Hola, soy Aria. Cuénteme qué pasó el día del accidente.' },
-  { role: 'caller', text: 'Me chocaron por atrás en un semáforo en Santa Ana…' },
+  { role: 'caller', text: 'Me chocaron por atrás en un semáforo en el Embarcadero…' },
   { role: 'aria', text: '¿Tiene el reporte policial? Puede mostrarlo a la cámara.' },
   { role: 'system', text: 'Document parsed · Police report · Fault: undetermined' },
   {
@@ -20,8 +20,8 @@ const AGENT_TRANSCRIPT = [
     text: 'Veo una discrepancia — usted dijo luz roja; el reporte no lo confirma.',
   },
   { role: 'aria', text: '¿Recibió tratamiento en el hospital o urgencias?' },
-  { role: 'system', text: 'Moss · Comparable settlements · OC rear-end · $45K–$72K' },
-  { role: 'aria', text: 'Su caso califica. Le conecto con Martinez & Associates.' },
+  { role: 'system', text: 'Moss · Comparable settlements · SF rear-end · $45K–$72K' },
+  { role: 'aria', text: 'Su caso califica. Le conecto con Pacific Heights Injury Law.' },
 ] as const;
 
 function WindowChrome({ children, className }: { children: React.ReactNode; className?: string }) {

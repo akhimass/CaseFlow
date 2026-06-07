@@ -47,6 +47,20 @@ function normalizeSnippet(snippet: MossSnippet | string): MossSnippet {
   return typeof snippet === 'string' ? { text: snippet } : snippet;
 }
 
+/**
+ * Derive a human-readable source reference from a citation id of the form
+ * `namespace:doc-id` (e.g. `settlements:ca-rear-end-high-clear`). This is the
+ * underlying comparable case / statute / firm record the snippet was retrieved
+ * from — surfaced as a clickable "case link" so the lawyer can trace provenance.
+ */
+function deriveSource(id?: string): { label: string; docId: string } | null {
+  if (!id || !id.includes(':')) return null;
+  const docId = id.slice(id.indexOf(':') + 1);
+  if (!docId) return null;
+  const label = docId.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return { label, docId };
+}
+
 function formatScore(score?: number | null): string | null {
   if (score === null || score === undefined || Number.isNaN(score)) return null;
   const pct = score <= 1 ? Math.round(score * 100) : Math.round(score);
@@ -76,6 +90,7 @@ function SnippetCard({
   const score = formatScore(snippet.score);
   const title = snippet.title ?? snippet.amount_range ?? `Result ${index + 1}`;
   const cited = citedAt !== undefined && now - citedAt < PULSE_MS;
+  const source = deriveSource(snippet.id);
 
   return (
     <div
@@ -121,10 +136,27 @@ function SnippetCard({
           ))}
         </ul>
       ) : null}
-      {snippet.citation || snippet.phone ? (
-        <div className="text-muted-foreground/70 mt-2 flex items-center gap-2 text-[10px]">
+      {snippet.citation || snippet.phone || source ? (
+        <div className="text-muted-foreground/70 mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]">
           {snippet.citation ? <span className="font-mono">{snippet.citation}</span> : null}
           {snippet.phone ? <span>{snippet.phone}</span> : null}
+          {source ? (
+            <button
+              type="button"
+              title={`Source record: ${source.docId}`}
+              onClick={() => {
+                if (snippet.id) {
+                  window.dispatchEvent(
+                    new CustomEvent('moss-cite', { detail: { id: snippet.id } })
+                  );
+                }
+              }}
+              className="border-border/70 text-muted-foreground hover:border-primary hover:text-primary inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-mono transition-colors"
+            >
+              <span aria-hidden>↗</span>
+              {source.docId}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

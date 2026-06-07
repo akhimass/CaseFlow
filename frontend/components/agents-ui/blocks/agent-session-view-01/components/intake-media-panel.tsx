@@ -110,10 +110,10 @@ export function IntakeMediaPanel({
               />
             </div>
           ) : (
-            <div className="relative flex h-[220px] w-full items-center justify-center">
+            <div className="relative flex aspect-square w-full max-w-[240px] items-center justify-center overflow-hidden rounded-full">
               {/* Outermost ambient ring — always visible */}
               <div
-                className="absolute size-[210px] rounded-full"
+                className="absolute size-[88%] rounded-full"
                 style={{
                   background: `radial-gradient(circle, ${audioVisualizerColor ?? '#2563EB'}18 0%, transparent 70%)`,
                 }}
@@ -123,10 +123,10 @@ export function IntakeMediaPanel({
                 className={cn(
                   'absolute rounded-full border transition-all duration-700',
                   agentState === 'speaking'
-                    ? 'size-[200px] animate-ping opacity-60'
+                    ? 'size-[78%] animate-pulse opacity-60'
                     : agentState === 'thinking'
-                      ? 'size-[188px] animate-pulse opacity-40'
-                      : 'size-[180px] opacity-20'
+                      ? 'size-[74%] animate-pulse opacity-40'
+                      : 'size-[70%] opacity-20'
                 )}
                 style={{ borderColor: `${audioVisualizerColor ?? '#2563EB'}60` }}
               />
@@ -134,11 +134,11 @@ export function IntakeMediaPanel({
               <div
                 className={cn(
                   'absolute rounded-full border-2 transition-all duration-500',
-                  agentState === 'speaking' ? 'size-[162px] opacity-70' : 'size-[154px] opacity-30'
+                  agentState === 'speaking' ? 'size-[66%] opacity-70' : 'size-[62%] opacity-30'
                 )}
                 style={{ borderColor: `${audioVisualizerColor ?? '#2563EB'}90` }}
               />
-              {/* Aura canvas */}
+              {/* Aura canvas — kept inside the box on every breakpoint */}
               <AudioVisualizer
                 isChatOpen={false}
                 audioVisualizerType={audioVisualizerType}
@@ -150,7 +150,7 @@ export function IntakeMediaPanel({
                 audioVisualizerGridRowCount={audioVisualizerGridRowCount}
                 audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
                 audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
-                className="size-[148px] rounded-full"
+                className="size-[60%] max-h-[60%] max-w-[60%] rounded-full md:size-[60%]"
                 style={{ color: audioVisualizerColor }}
               />
             </div>

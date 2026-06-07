@@ -43,7 +43,11 @@ from consistency import (
     check_cross_document,
     extract_injury_keywords,
 )
-from doc_intent import DocumentCaptureCoordinator, detect_document_intent
+from doc_intent import (
+    DocumentCaptureCoordinator,
+    detect_document_intent,
+    detect_document_request,
+)
 from doc_thumbnail import make_redacted_thumbnail
 from document_generator import generate_intake_summary, generate_post_match_documents
 from gateway import GatewayMetadata, _record_audit, gateway_configured, llm_configured
@@ -323,11 +327,14 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
     # Camera and documents
 
     The caller is on live video.
-    - When a document would help, ask them to turn on their camera so you can take
-      a look ("Would you mind turning on your camera so I can see it?"). The camera
-      turns on for them automatically when you ask.
-    - Then ask them to hold the document steady, close to the lens, and keep it in
-      frame. It is parsed automatically — you do not read it aloud or name a tool.
+    - When a document would help, ask them to turn on their camera and hold up that
+      document — and NAME the document type in the same request, because naming it
+      is what triggers the camera + capture. Always say the document by name:
+      "police report", "hospital discharge papers", or "insurance letter". Example:
+      "Could you turn on your camera and hold your police report up to the camera?"
+      The camera turns on and the capture happens automatically when you ask this.
+    - Then have them hold it steady, close to the lens, filling the frame. It is
+      parsed automatically — you do not read it aloud or name a tool.
     - Make it a single, calm request — don't stack it with another question.
     - Only describe a document from its actual parsed fields once they arrive.
       Never claim what a document says before it is parsed, and never infer fault
@@ -746,7 +753,19 @@ class Assistant(Agent):
             )
 
     async def _maybe_capture_document(self, transcript: str) -> None:
-        intent = detect_document_intent(transcript)
+        """Capture when the CALLER names a document they have."""
+        await self._trigger_capture(detect_document_intent(transcript))
+
+    async def _maybe_request_capture(self, agent_text: str) -> None:
+        """Capture when the AGENT asks the caller to show a document.
+
+        This is the common demo flow: the agent says 'hold up your police report
+        to the camera' and the caller just shows it — without this, capture only
+        fired if the caller spoke a document phrase, so nothing parsed.
+        """
+        await self._trigger_capture(detect_document_request(agent_text))
+
+    async def _trigger_capture(self, intent) -> None:
         if intent is None or not self._doc_capture.should_capture(intent.doc_type):
             return
         await request_enable_video(
@@ -2066,6 +2085,9 @@ async def my_agent(ctx: JobContext):
             await assistant._audit_dialogue_turn(text)
 
         assistant._spawn(_persist_agent_line())
+        # If the agent just asked the caller to show a document, trigger capture
+        # so it parses even when the caller holds it up without naming it.
+        assistant._spawn(assistant._maybe_request_capture(text))
 
     @session.on("close")
     def _on_session_close(_ev) -> None:

@@ -11,9 +11,15 @@ from typing import Any
 import httpx
 import openai
 from livekit.agents import inference, llm
+from livekit.agents.llm.chat_context import FunctionCall, FunctionCallOutput
 from livekit.agents.llm.fallback_adapter import FallbackAdapter, FallbackLLMStream
 from livekit.agents.llm.llm import LLMStream
-from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN, APIConnectOptions, NotGivenOr
+from livekit.agents.types import (
+    DEFAULT_API_CONNECT_OPTIONS,
+    NOT_GIVEN,
+    APIConnectOptions,
+    NotGivenOr,
+)
 
 from bedrock_llm import (
     bedrock_chat_openai_compat,
@@ -55,8 +61,14 @@ def _tfy_guardrails_header() -> str | None:
     *input* guardrails always run — so dialogue prompts still get gateway-side
     PII screening on top of our app-level RedactingLLM.
     """
-    inp = [g.strip() for g in os.getenv("TFY_INPUT_GUARDRAILS", "").split(",") if g.strip()]
-    out = [g.strip() for g in os.getenv("TFY_OUTPUT_GUARDRAILS", "").split(",") if g.strip()]
+    inp = [
+        g.strip() for g in os.getenv("TFY_INPUT_GUARDRAILS", "").split(",") if g.strip()
+    ]
+    out = [
+        g.strip()
+        for g in os.getenv("TFY_OUTPUT_GUARDRAILS", "").split(",")
+        if g.strip()
+    ]
     if not inp and not out:
         return None
     return json.dumps(
@@ -186,7 +198,9 @@ class _AuditedFallbackLLMStream(FallbackLLMStream):
         self._provider_logged = False
 
     async def _try_generate(self, *, llm: llm.LLM, check_recovery: bool = False):
-        async for chunk in super()._try_generate(llm=llm, check_recovery=check_recovery):
+        async for chunk in super()._try_generate(
+            llm=llm, check_recovery=check_recovery
+        ):
             if not check_recovery and not self._provider_logged:
                 self._provider_logged = True
                 asyncio.create_task(
@@ -281,6 +295,35 @@ def _is_retryable_status(error: Exception) -> bool:
     return isinstance(status_code, int) and 500 <= status_code < 600
 
 
+def _balance_tool_calls(chat_ctx: llm.ChatContext) -> llm.ChatContext:
+    """Drop orphaned tool calls/outputs so strict providers don't 400.
+
+    MiniMax rejects requests whose assistant tool_calls aren't 1:1 matched with
+    their tool results ("invalid params, invalid tool calls count"). Barge-in
+    interruptions and preemptive generation can leave a FunctionCall without its
+    FunctionCallOutput (or vice-versa) in the running history; we drop those
+    unmatched items before sending, preserving order. Returns the original
+    context untouched when nothing needs repair.
+    """
+    items = list(chat_ctx.items)
+    call_ids = {it.call_id for it in items if isinstance(it, FunctionCall)}
+    output_ids = {it.call_id for it in items if isinstance(it, FunctionCallOutput)}
+    if call_ids == output_ids:
+        return chat_ctx
+
+    repaired = chat_ctx.copy()
+    kept = [
+        it
+        for it in repaired.items
+        if not (
+            (isinstance(it, FunctionCall) and it.call_id not in output_ids)
+            or (isinstance(it, FunctionCallOutput) and it.call_id not in call_ids)
+        )
+    ]
+    repaired.items[:] = kept
+    return repaired
+
+
 class OpenAIChatLLM(llm.LLM):
     def __init__(
         self,
@@ -340,8 +383,15 @@ class OpenAIChatLLM(llm.LLM):
         turn_index: int | None = None,
     ) -> dict[str, Any]:
         merged = dict(extra_kwargs or {})
-        merged.setdefault("temperature", self._default_temperature if temperature is None else temperature)
-        if self._max_tokens and "max_completion_tokens" not in merged and "max_tokens" not in merged:
+        merged.setdefault(
+            "temperature",
+            self._default_temperature if temperature is None else temperature,
+        )
+        if (
+            self._max_tokens
+            and "max_completion_tokens" not in merged
+            and "max_tokens" not in merged
+        ):
             merged["max_completion_tokens"] = self._max_tokens
         return merged
 
@@ -362,6 +412,11 @@ class OpenAIChatLLM(llm.LLM):
             merged["parallel_tool_calls"] = parallel_tool_calls
         if tool_choice is not NOT_GIVEN:
             merged["tool_choice"] = tool_choice
+
+        # MiniMax strictly validates tool-call/result pairing; repair the history
+        # so an interrupted, unanswered tool call can't 400 the whole turn.
+        if self._provider == "minimax":
+            chat_ctx = _balance_tool_calls(chat_ctx)
 
         return inference.LLMStream(
             self,
@@ -426,7 +481,9 @@ class _BedrockLLMStream(LLMStream):
         temperature: float,
         max_tokens: int,
     ) -> None:
-        super().__init__(llm_, chat_ctx=chat_ctx, tools=tools, conn_options=conn_options)
+        super().__init__(
+            llm_, chat_ctx=chat_ctx, tools=tools, conn_options=conn_options
+        )
         self._cc = chat_ctx
         self._temperature = temperature
         self._max_tokens = max_tokens
@@ -441,7 +498,9 @@ class _BedrockLLMStream(LLMStream):
         except Exception:
             logger.exception("BedrockLLM stream failed (messages=%d)", len(messages))
             raise
-        content = (data or {}).get("content", "") if isinstance(data, dict) else str(data)
+        content = (
+            (data or {}).get("content", "") if isinstance(data, dict) else str(data)
+        )
         self._event_ch.send_nowait(
             llm.ChatChunk(
                 id="bedrock-fallback",
@@ -504,7 +563,11 @@ class TrueFoundryLLM(llm.LLM):
         if primary_llm is None:
             primary_llm = OpenAIChatLLM(
                 api_key=_get_env("OPENAI_API_KEY", "TRUEFOUNDRY_API_KEY"),
-                model=_get_env("OPENAI_MODEL", "TRUEFOUNDRY_MODEL", default="virtual-models/prod-model"),
+                model=_get_env(
+                    "OPENAI_MODEL",
+                    "TRUEFOUNDRY_MODEL",
+                    default="virtual-models/prod-model",
+                ),
                 provider="truefoundry",
                 default_temperature=self._primary_temperature,
                 case_id=case_id,
@@ -552,7 +615,9 @@ class TrueFoundryLLM(llm.LLM):
             max_tokens=self._max_tokens,
         )
         bedrock_llm: llm.LLM | None = (
-            BedrockLLM(temperature=self._primary_temperature, max_tokens=self._max_tokens)
+            BedrockLLM(
+                temperature=self._primary_temperature, max_tokens=self._max_tokens
+            )
             if bedrock_configured()
             else None
         )
@@ -630,7 +695,9 @@ class TrueFoundryLLM(llm.LLM):
         tool_choice: llm.ToolChoice | None = None,
     ) -> llm.LLMStream:
         merged_extra: dict[str, Any] = {
-            "temperature": self._primary_temperature if temperature is None else temperature,
+            "temperature": self._primary_temperature
+            if temperature is None
+            else temperature,
             "max_completion_tokens": self._max_tokens,
         }
         if parallel_tool_calls is not None:
@@ -641,7 +708,8 @@ class TrueFoundryLLM(llm.LLM):
         return self._primary_llm.chat(
             chat_ctx=chat_ctx,
             tools=tools or [],
-            conn_options=conn_options or APIConnectOptions(timeout=DEFAULT_TIMEOUT_SECONDS, max_retry=0),
+            conn_options=conn_options
+            or APIConnectOptions(timeout=DEFAULT_TIMEOUT_SECONDS, max_retry=0),
             extra_kwargs=merged_extra,
         )
 
@@ -673,7 +741,10 @@ class TrueFoundryLLM(llm.LLM):
 
     async def extract_fields(self, transcript_chunk: str, current_state: str) -> str:
         prompt = [
-            {"role": "system", "content": "Extract structured PI intake fields as compact JSON only."},
+            {
+                "role": "system",
+                "content": "Extract structured PI intake fields as compact JSON only.",
+            },
             {
                 "role": "user",
                 "content": json.dumps(
@@ -688,7 +759,10 @@ class TrueFoundryLLM(llm.LLM):
 
     async def score_case(self, case_data: str) -> str:
         prompt = [
-            {"role": "system", "content": "Score the case from 0-100 and explain briefly in JSON only."},
+            {
+                "role": "system",
+                "content": "Score the case from 0-100 and explain briefly in JSON only.",
+            },
             {"role": "user", "content": case_data},
         ]
         return await self._complete_text(prompt, temperature=self._score_temperature)
@@ -713,7 +787,11 @@ class TrueFoundryLLM(llm.LLM):
             )
         attempts.extend(
             [
-                (self._primary_llm._ensure_client(), self._primary_llm.model, "truefoundry"),  # noqa: SLF001
+                (
+                    self._primary_llm._ensure_client(),
+                    self._primary_llm.model,
+                    "truefoundry",
+                ),  # noqa: SLF001
             ]
         )
         for client, model, provider in attempts:

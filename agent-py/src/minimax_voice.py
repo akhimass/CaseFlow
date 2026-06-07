@@ -24,6 +24,7 @@ MessageType = Literal["default", "empathetic", "reassuring"]
 CallerLanguage = Literal["en", "es"]
 MULTILINGUAL_STT_LANGUAGE = "multi"
 
+
 def pronunciation_tone_entries(state: VoiceSessionState | None = None) -> list[str]:
     merged = dict(PI_PRONUNCIATION)
     if state:
@@ -103,15 +104,17 @@ def select_emotion(message_type: MessageType) -> str:
         return "calm"
     if message_type == "reassuring":
         return "calm"
-    return os.getenv("MINIMAX_EMOTION", "neutral") or "neutral"
+    # Baseline is calm/relaxed for the whole intake — not just empathetic moments.
+    return os.getenv("MINIMAX_EMOTION", "calm") or "calm"
 
 
 def select_speed(message_type: MessageType) -> float:
     if message_type == "empathetic":
-        return float(os.getenv("MINIMAX_EMPATHY_SPEED", "0.88"))
+        return float(os.getenv("MINIMAX_EMPATHY_SPEED", "0.85"))
     if message_type == "reassuring":
-        return float(os.getenv("MINIMAX_REASSURE_SPEED", "1.02"))
-    return float(os.getenv("MINIMAX_SPEED", "1.0"))
+        return float(os.getenv("MINIMAX_REASSURE_SPEED", "0.96"))
+    # Slightly under 1.0 reads as relaxed and easy to follow without sounding slow.
+    return float(os.getenv("MINIMAX_SPEED", "0.94"))
 
 
 def select_intensity(message_type: MessageType) -> int | None:
@@ -215,7 +218,7 @@ class VoiceSessionState:
         code = normalize_lang(lang) or self.caller_language
         if code == "es":
             return os.getenv("MINIMAX_VOICE_ID_ES", "Spanish_SereneWoman")
-        return os.getenv("MINIMAX_VOICE_ID_EN", "English_radiant_girl")
+        return os.getenv("MINIMAX_VOICE_ID_EN", "English_SereneWoman")
 
 
 def apply_tts_options(
@@ -458,7 +461,10 @@ class LoggingTTS(tts.TTS):
         self._inner.update_options(**kwargs)
 
     def synthesize(
-        self, text: str, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS
+        self,
+        text: str,
+        *,
+        conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
     ) -> tts.ChunkedStream:
         return self._inner.synthesize(text, conn_options=conn_options)
 
@@ -478,9 +484,7 @@ class LoggingTTS(tts.TTS):
         await self._inner.aclose()
 
 
-def build_caseflow_voice(
-    *, state: VoiceSessionState
-) -> tuple[LoggingTTS, minimax.TTS]:
+def build_caseflow_voice(*, state: VoiceSessionState) -> tuple[LoggingTTS, minimax.TTS]:
     """MiniMax TTS with LoggingTTS observability wrapper."""
     inner = build_minimax_tts(state=state)
     return LoggingTTS(inner=inner, state=state), inner

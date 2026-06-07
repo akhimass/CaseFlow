@@ -99,7 +99,9 @@ if openai_direct_configured():
         os.getenv("OPENAI_DIRECT_MODEL", "gpt-4.1-mini"),
     )
 elif openai_configured():
-    logger.info("OpenAI configured — gateway-routed LLM calls use OpenAI (gpt-4.1-mini)")
+    logger.info(
+        "OpenAI configured — gateway-routed LLM calls use OpenAI (gpt-4.1-mini)"
+    )
 elif gateway_configured():
     logger.info(
         "TrueFoundry gateway configured — LLM calls route through gateway (Bedrock fallback)"
@@ -111,9 +113,7 @@ elif bedrock_configured():
 elif llm_configured():
     logger.warning("Only LiveKit Inference available for gateway-routed LLM calls")
 else:
-    logger.warning(
-        "No gateway LLM configured — consistency uses rules-only fallback"
-    )
+    logger.warning("No gateway LLM configured — consistency uses rules-only fallback")
 if s3_configured():
     logger.info("AWS S3 configured — case artifacts will persist to bucket")
 else:
@@ -231,6 +231,12 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
       or liability that the parsed fields do not state. If the parsed document is
       not the one you expected (e.g. a driver's license instead of a police
       report), gently say so and ask for the correct document.
+    - Full-page paper documents (police report, ER discharge, insurance letter)
+      often won't fit the caller's camera window all at once. For those, ask them
+      to fit the whole page or show it in parts — top first, then the rest — and
+      if a capture only caught part of the page, ask them to show the remainder.
+      Small cards (driver's license, registration, insurance card) fit in one
+      frame — just have them hold it close and steady.
 
     # Retrieval tools
 
@@ -287,6 +293,11 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
     question per turn. No markdown, lists, or tool names spoken aloud. Never
     promise settlement amounts or legal outcomes. Say "filing window" not
     "statute of limitations" unless caller does.
+
+    Keep a calm, relaxed, unhurried cadence for the entire call — soft, warm, and
+    steady, even while collecting routine facts. Leave a brief, natural pause after
+    the caller finishes before you respond, so they never feel rushed or talked
+    over. Breathe. You are never in a hurry.
 
     Speak with natural pauses and let the caller finish their thoughts. When
     acknowledging pain or distress, slow down slightly and soften your tone.
@@ -486,7 +497,10 @@ class Assistant(Agent):
         await self._persistence.on_transcript_line(speaker, text, language, turn)
         await self._update_case(
             "transcript_line",
-            {"transcript_line": line, "transcript_lines": self._transcript_lines[-200:]},
+            {
+                "transcript_line": line,
+                "transcript_lines": self._transcript_lines[-200:],
+            },
         )
 
     async def _persist_field_internal(
@@ -621,7 +635,9 @@ class Assistant(Agent):
                 },
             )
             await self._publish_document_event(doc_type, parsed, status="error")
-            logger.warning("Unsiloed parse error for %s: %s", doc_type, meta.get("error"))
+            logger.warning(
+                "Unsiloed parse error for %s: %s", doc_type, meta.get("error")
+            )
             return parsed
 
         # Unsiloed detects what the caller ACTUALLY showed; trust that over the
@@ -686,10 +702,24 @@ class Assistant(Agent):
         instead of pretending a driver's license is a police report.
         """
         actual_type = str(parsed.get("doc_type") or requested)
-        skip = {"_meta", "markdown", "raw_excerpt", "thumbnail", "capture_source", "turn",
-                "doc_type", "unexpected_document", "requested_doc_type"}
+        skip = {
+            "_meta",
+            "markdown",
+            "raw_excerpt",
+            "thumbnail",
+            "capture_source",
+            "turn",
+            "doc_type",
+            "unexpected_document",
+            "requested_doc_type",
+            "form_factor",
+            "capture_complete",
+            "capture_guidance",
+        }
         field_view = {
-            k: v for k, v in parsed.items() if k not in skip and not str(k).startswith("_")
+            k: v
+            for k, v in parsed.items()
+            if k not in skip and not str(k).startswith("_")
         }
         note = ""
         if parsed.get("unexpected_document"):
@@ -697,6 +727,13 @@ class Assistant(Agent):
                 f" The caller showed a {actual_type.replace('_', ' ')}, NOT the "
                 f"{requested.replace('_', ' ')} you asked for — gently tell them and ask "
                 "for the correct document."
+            )
+        # Full-page paper docs often don't fit the small camera frame; if the
+        # capture looks partial, tell the agent to ask for the rest of the page.
+        if parsed.get("capture_complete") is False:
+            note += " " + str(
+                parsed.get("capture_guidance")
+                or "Only part of this page was captured — ask the caller to show the rest."
             )
         content = (
             f"[Document parsed via Unsiloed] type={actual_type}. "
@@ -818,7 +855,9 @@ class Assistant(Agent):
                 language=self._language,
                 consent_given_at=self._consent_given_at,
             )
-            redacted_lines = operational.get("transcript_lines") or self._transcript_lines
+            redacted_lines = (
+                operational.get("transcript_lines") or self._transcript_lines
+            )
             package = await build_post_call_package(
                 case_id=self._case_id,
                 caller_id=self._user_id,
@@ -895,7 +934,9 @@ class Assistant(Agent):
         )
         await self._publish_moss_context_event(event)
 
-    async def _broadcast_voice_bridge(self, *, language: str, language_changed: bool) -> None:
+    async def _broadcast_voice_bridge(
+        self, *, language: str, language_changed: bool
+    ) -> None:
         """Surface Deepgram STT → MiniMax TTS routing on the firm dashboard."""
         if self._voice_state is None:
             return
@@ -926,7 +967,9 @@ class Assistant(Agent):
             },
         )
 
-    async def _publish_document_event(self, doc_type: str, parsed: dict, *, status: str) -> None:
+    async def _publish_document_event(
+        self, doc_type: str, parsed: dict, *, status: str
+    ) -> None:
         """Push Unsiloed parse status to intake UI via LiveKit data channel."""
         if self._room is None:
             return
@@ -946,6 +989,25 @@ class Assistant(Agent):
             )
         except Exception:
             logger.exception("Failed to publish document_parse")
+
+    async def _publish_firm_recommendations(self, leads: list[dict]) -> None:
+        """Push matched-firm cards to the caller's intake UI (Moss-backed lead-gen)."""
+        if self._room is None or not leads:
+            return
+        try:
+            payload = {
+                "type": "firm_recommendations",
+                "data": {
+                    "firms": leads,
+                    "timestamp": time.time(),
+                },
+            }
+            await self._room.local_participant.publish_data(
+                payload=json.dumps(payload, default=str).encode("utf-8"),
+                reliable=True,
+            )
+        except Exception:
+            logger.exception("Failed to publish firm_recommendations")
 
     async def _audit_dialogue_turn(self, text: str) -> None:
         """Log dialogue LLM turns to TrueFoundry audit trail (firm metrics panel)."""
@@ -1033,7 +1095,9 @@ class Assistant(Agent):
         self._spawn(self._maybe_generate_documents(event))
         if diff:
             logger.info("CASEFLOW_STATE_DIFF %s", diff)
-            self._spawn(self._adaptive.on_case_state_change(diff, dict(self._case_data)))
+            self._spawn(
+                self._adaptive.on_case_state_change(diff, dict(self._case_data))
+            )
 
     async def _resynthesize(self) -> None:
         """Re-run synthesis from the latest per-stream rows (adaptive cross-fade)."""
@@ -1172,10 +1236,14 @@ class Assistant(Agent):
         """
         leads = await self._retriever.firm_leads(self._case_data, caller_location)
         if leads:
+            lead_dicts = rows_to_dicts(leads)
             await self._update_case(
                 "firm_leads_retrieved",
-                {"moss_firm_leads": rows_to_dicts(leads)},
+                {"moss_firm_leads": lead_dicts},
             )
+            # Surface the firm cards on the caller's intake screen (phone, fit,
+            # Moss-backed reasons) so they can see and choose a recommendation.
+            await self._publish_firm_recommendations(lead_dicts)
             return "\n\n".join(ld.summary() for ld in leads)
         # Fall back to the basic roster match if multi-index correlation returns nothing.
         rows = await self._retriever.firms(self._case_data, caller_location)
@@ -1290,7 +1358,12 @@ class Assistant(Agent):
         prior = self._case_data.get("caseflow_decision")
         prior = prior if isinstance(prior, dict) else {}
         # Preserve the last good synthesis under a transient "synthesizing" status.
-        merged = {**prior, **payload, "seq": self._decision_seq, "timestamp": time.time()}
+        merged = {
+            **prior,
+            **payload,
+            "seq": self._decision_seq,
+            "timestamp": time.time(),
+        }
         await self._update_case("caseflow_decision", {"caseflow_decision": merged})
 
     @function_tool()
@@ -1398,6 +1471,16 @@ class Assistant(Agent):
         self._voice_state.message_type = "reassuring"
         await self._persistence.on_firms_matched(result)
         await self._update_case("firms_matched", result)
+        # Always surface the Moss-backed firm cards on the caller's screen at the
+        # recommendation moment, even if the agent skipped retrieve_matching_firms.
+        with contextlib.suppress(Exception):
+            leads = await self._retriever.firm_leads(self._case_data, location)
+            if leads:
+                lead_dicts = rows_to_dicts(leads)
+                await self._update_case(
+                    "firm_leads_retrieved", {"moss_firm_leads": lead_dicts}
+                )
+                await self._publish_firm_recommendations(lead_dicts)
         return json.dumps(result)
 
     @function_tool()
@@ -1524,6 +1607,11 @@ async def my_agent(ctx: JobContext):
         turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
         preemptive_generation=True,
+        # Calm, unhurried pacing: leave a slightly longer beat after the caller
+        # stops so the agent never clips their trailing words, and wait longer for
+        # callers who pause mid-thought (in pain / upset) before taking the turn.
+        min_endpointing_delay=float(os.getenv("CASEFLOW_MIN_ENDPOINTING_DELAY", "0.6")),
+        max_endpointing_delay=float(os.getenv("CASEFLOW_MAX_ENDPOINTING_DELAY", "4.0")),
         userdata=session_userdata,
     )
 

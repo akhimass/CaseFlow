@@ -60,6 +60,17 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
   }
 }
 
+async function ipGeocode(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/geocode/ip', { headers: { Accept: 'application/json' } });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { label?: string | null };
+    return data.label ?? null;
+  } catch {
+    return null;
+  }
+}
+
 type Props = {
   onConfirmed: () => void;
 };
@@ -99,18 +110,36 @@ export function LocationPromptPanel({ onConfirmed }: Props) {
     [location, onConfirmed]
   );
 
+  // Last-resort IP lookup when browser GPS is blocked/slow/unavailable. Returns
+  // true if it resolved + confirmed a city, false otherwise.
+  const tryIpFallback = useCallback(async (): Promise<boolean> => {
+    const label = await ipGeocode();
+    if (label) {
+      setLocation(label);
+      await confirm(label);
+      return true;
+    }
+    return false;
+  }, [confirm]);
+
   const useMyLocation = useCallback(() => {
-    // Geolocation only works in a secure context (https or localhost).
-    if (typeof window !== 'undefined' && !window.isSecureContext) {
-      setError(t.geoInsecure);
-      return;
-    }
-    if (!navigator.geolocation) {
-      setError(t.geoError);
-      return;
-    }
     setBusy(true);
     setError('');
+
+    const fallback = async (message: string) => {
+      if (await tryIpFallback()) return;
+      setError(message);
+      setBusy(false);
+    };
+
+    // Geolocation only works in a secure context (https or localhost); if it's
+    // missing entirely, go straight to the IP-based fallback.
+    const insecure = typeof window !== 'undefined' && !window.isSecureContext;
+    if (insecure || !navigator.geolocation) {
+      void fallback(insecure ? t.geoInsecure : t.geoError);
+      return;
+    }
+
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const label = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
@@ -118,20 +147,21 @@ export function LocationPromptPanel({ onConfirmed }: Props) {
           setLocation(label);
           await confirm(label);
         } else {
-          // Got coordinates but no readable city — let the user type it in.
-          setError(t.geoError);
-          setBusy(false);
+          await fallback(t.geoError);
         }
       },
       (err) => {
-        if (err.code === err.PERMISSION_DENIED) setError(t.geoDenied);
-        else if (err.code === err.TIMEOUT) setError(t.geoTimeout);
-        else setError(t.geoError);
-        setBusy(false);
+        const message =
+          err.code === err.PERMISSION_DENIED
+            ? t.geoDenied
+            : err.code === err.TIMEOUT
+              ? t.geoTimeout
+              : t.geoError;
+        void fallback(message);
       },
       { timeout: 8000, maximumAge: 60_000 }
     );
-  }, [confirm, t.geoError, t.geoDenied, t.geoTimeout, t.geoInsecure]);
+  }, [confirm, tryIpFallback, t.geoError, t.geoDenied, t.geoTimeout, t.geoInsecure]);
 
   return (
     <section className="flex w-full flex-col items-center justify-center px-6 py-6 text-center">

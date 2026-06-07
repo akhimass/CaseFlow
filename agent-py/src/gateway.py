@@ -38,9 +38,7 @@ MODEL_ALIASES: dict[str, str] = {
     "bedrock-claude-3-5-sonnet": os.getenv(
         "BEDROCK_AUDIT_MODEL", "anthropic.claude-3-5-sonnet-20241022-v2:0"
     ),
-    "livekit-inference": os.getenv(
-        "LIVEKIT_INFERENCE_MODEL", "openai/gpt-4.1-mini"
-    ),
+    "livekit-inference": os.getenv("LIVEKIT_INFERENCE_MODEL", "openai/gpt-4.1-mini"),
 }
 
 CHAT_TIMEOUT_S = float(os.getenv("GATEWAY_CHAT_TIMEOUT_S", "8"))
@@ -93,7 +91,9 @@ _audit_buffer: list[dict[str, Any]] = []
 
 
 def gateway_configured() -> bool:
-    return bool(os.getenv("TRUEFOUNDRY_GATEWAY_URL") and os.getenv("TRUEFOUNDRY_API_KEY"))
+    return bool(
+        os.getenv("TRUEFOUNDRY_GATEWAY_URL") and os.getenv("TRUEFOUNDRY_API_KEY")
+    )
 
 
 def llm_configured() -> bool:
@@ -111,16 +111,17 @@ def _gateway_base() -> str:
 def _front_door_enabled() -> bool:
     """Whether TrueFoundry should be the *primary* hop (not just a fallback).
 
-    ``TRUEFOUNDRY_FRONT_DOOR`` = ``on``/``off`` forces it; ``auto`` (default)
-    turns it on whenever the gateway is configured. Direct providers always stay
-    in the chain as deeper safety nets, so the demo never hard-fails on TF.
+    ``TRUEFOUNDRY_FRONT_DOOR`` = ``on`` makes TrueFoundry the primary hop;
+    ``auto`` turns it on whenever the gateway is configured. Default is ``off``
+    (opt-in) so routing is unchanged until TF is verified healthy. Direct
+    providers always stay in the chain as deeper safety nets.
     """
-    val = os.getenv("TRUEFOUNDRY_FRONT_DOOR", "auto").strip().lower()
+    val = os.getenv("TRUEFOUNDRY_FRONT_DOOR", "off").strip().lower()
     if val in {"0", "off", "false", "no"}:
         return False
     if val in {"1", "on", "true", "yes"}:
         return True
-    return gateway_configured()
+    return gateway_configured()  # "auto"
 
 
 def _guardrails_header() -> str | None:
@@ -130,8 +131,14 @@ def _guardrails_header() -> str | None:
     guardrail group names (e.g. ``caseflow/pii-detection``). Returns None when
     neither is set so we don't send an empty policy.
     """
-    inp = [g.strip() for g in os.getenv("TFY_INPUT_GUARDRAILS", "").split(",") if g.strip()]
-    out = [g.strip() for g in os.getenv("TFY_OUTPUT_GUARDRAILS", "").split(",") if g.strip()]
+    inp = [
+        g.strip() for g in os.getenv("TFY_INPUT_GUARDRAILS", "").split(",") if g.strip()
+    ]
+    out = [
+        g.strip()
+        for g in os.getenv("TFY_OUTPUT_GUARDRAILS", "").split(",")
+        if g.strip()
+    ]
     if not inp and not out:
         return None
     return json.dumps(
@@ -330,9 +337,7 @@ async def _invoke_provider(
 
 
 def _parse_chat_response(data: dict[str, Any], model_id: str) -> GatewayResponse:
-    content = (
-        data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
-    )
+    content = data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
     usage = data.get("usage") or {}
     provider = data.get("_provider") or "unknown"
     return GatewayResponse(

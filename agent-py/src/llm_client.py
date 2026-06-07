@@ -136,6 +136,30 @@ def _minimax_llm(
     )
 
 
+def anthropic_configured() -> bool:
+    return bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+
+
+def _anthropic_llm(*, temperature: float, max_tokens: int) -> llm.LLM | None:
+    """Claude via the LiveKit Anthropic plugin — the reliable tool-calling brain.
+
+    Claude does native, well-formed tool calls (unlike MiniMax, which narrates them
+    as text), so when ANTHROPIC_API_KEY is set this is the preferred dialogue
+    primary. Defaults to the fast Haiku tier for low voice latency.
+    """
+    key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not key:
+        return None
+    from livekit.plugins import anthropic as _anthropic
+
+    return _anthropic.LLM(
+        model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5"),
+        api_key=key,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+
 async def _record_dialogue_provider(
     active_llm: llm.LLM,
     *,
@@ -623,6 +647,10 @@ class TrueFoundryLLM(llm.LLM):
             if bedrock_configured()
             else None
         )
+        # Claude — reliable native tool-calling brain (preferred when keyed).
+        anthropic_llm = _anthropic_llm(
+            temperature=self._primary_temperature, max_tokens=self._max_tokens
+        )
         livekit_llm = _livekit_inference_llm()
 
         # Build the failover chain, honoring DIALOGUE_PRIMARY for the first slot.
@@ -631,13 +659,17 @@ class TrueFoundryLLM(llm.LLM):
         # OpenAI paths once the org has a payment method. Set DIALOGUE_PRIMARY to
         # minimax | bedrock | openai | truefoundry to change the preferred provider.
         by_pref = {
+            "anthropic": anthropic_llm,
+            "claude": anthropic_llm,
             "minimax": minimax_llm,
             "bedrock": bedrock_llm,
             "openai": direct_llm,
             "openai-direct": direct_llm,
             "truefoundry": self._primary_llm,
         }
-        primary_pref = os.getenv("DIALOGUE_PRIMARY", "minimax").strip().lower()
+        # Default primary: Claude when keyed (native tool-calling), else MiniMax.
+        default_pref = "anthropic" if anthropic_llm is not None else "minimax"
+        primary_pref = os.getenv("DIALOGUE_PRIMARY", default_pref).strip().lower()
 
         chain: list[llm.LLM] = []
 
@@ -650,6 +682,8 @@ class TrueFoundryLLM(llm.LLM):
         if primary_pref in {"truefoundry", "tfy", "virtual"}:
             _add(tfy_virtual_dialogue)
         _add(by_pref.get(primary_pref))
+        # Claude is the most reliable tool-caller — keep it high in the chain.
+        _add(anthropic_llm)
         _add(tfy_virtual_dialogue)
         # Reliability-ordered remainder (deduped against the preferred primary).
         _add(minimax_llm)
@@ -823,8 +857,10 @@ class TrueFoundryLLM(llm.LLM):
 
 
 def dialogue_llm_configured() -> bool:
-    return openai_direct_configured() or bool(
-        _get_env("TRUEFOUNDRY_API_KEY", "OPENAI_API_KEY")
+    return (
+        anthropic_configured()
+        or openai_direct_configured()
+        or bool(_get_env("TRUEFOUNDRY_API_KEY", "OPENAI_API_KEY"))
     )
 
 

@@ -19,6 +19,7 @@ dependencies = [
     "markdown>=3.7",
     "weasyprint>=63.0",
     "livekit-plugins-deepgram>=1.5.18,<1.6",
+    "livekit-plugins-anthropic>=1.5.18",
 ]
 
 [dependency-groups]

@@ -197,6 +197,25 @@ wheels = [
 ]
 
 [[package]]
+name = "anthropic"
+version = "0.107.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "docstring-parser" },
+    { name = "httpx" },
+    { name = "jiter" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d9/57/9eaf3d6823eba892c837a738f32a74b51193a23904a8761f6711f7714105/anthropic-0.107.0.tar.gz", hash = "sha256:e036aae37b7a9ba0a71d74663a559002c96800eeaca4e336ca1f2d10d0a33297", size = 855992, upload-time = "2026-06-06T17:13:36.755Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/58/1d/f8b7f1c0344f3c1cabebc48a969f7363dba9a306fd0cca293587e2c3093a/anthropic-0.107.0-py3-none-any.whl", hash = "sha256:b28315631e8ed92eec37ff0f911e59730c6a04663d9fffd53e201e11fa6669f1", size = 838567, upload-time = "2026-06-06T17:13:38.037Z" },
+]
+
+[[package]]
 name = "anyio"
 version = "4.13.0"
 source = { registry = "https://pypi.org/simple" }
@@ -388,6 +407,7 @@ dependencies = [
     { name = "httpx" },
     { name = "livekit-agents", extra = ["silero", "turn-detector"] },
     { name = "livekit-plugins-ai-coustics" },
+    { name = "livekit-plugins-anthropic" },
     { name = "livekit-plugins-deepgram" },
     { name = "livekit-plugins-minimax-ai" },
     { name = "markdown" },
@@ -409,6 +429,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "livekit-agents", extras = ["silero", "turn-detector"], specifier = "==1.5.18" },
     { name = "livekit-plugins-ai-coustics", specifier = "~=0.2" },
+    { name = "livekit-plugins-anthropic", specifier = ">=1.5.18" },
     { name = "livekit-plugins-deepgram", specifier = ">=1.5.18,<1.6" },
     { name = "livekit-plugins-minimax-ai", specifier = ">=1.5.18" },
     { name = "markdown", specifier = ">=3.7" },
@@ -1397,6 +1418,20 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/44/fb/a13307fcd74a15903537d51f8e24078073d5a9b408643fdf60165328a0b1/livekit_plugins_ai_coustics-0.2.15-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:aab3ba0403680471530adfe8fa4460222d315f3a4b1bc3a741018b727c46ee18", size = 70343065, upload-time = "2026-05-22T15:06:52.682Z" },
     { url = "https://files.pythonhosted.org/packages/dd/94/0fa72899cb0eb35722faed75562b70afa7aa4e23f2eed1944145e171b05a/livekit_plugins_ai_coustics-0.2.15-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:cfa3dc21d810625c0eab962da8728329b1ca5598caa23267c57082e869780f0c", size = 70686031, upload-time = "2026-05-22T15:06:56.56Z" },
     { url = "https://files.pythonhosted.org/packages/55/b3/392f4c6cbf6b9d8e1f6f4e61116dbf521e873a4e6d6f80dc3315268bb5d5/livekit_plugins_ai_coustics-0.2.15-cp310-abi3-win_amd64.whl", hash = "sha256:b961901c511be28add75c7ef584c2d31d07072975fceab4b03a0dd70e1c5855b", size = 70098340, upload-time = "2026-05-22T15:07:00.203Z" },
+]
+
+[[package]]
+name = "livekit-plugins-anthropic"
+version = "1.5.18"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anthropic" },
+    { name = "httpx" },
+    { name = "livekit-agents" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/57/af/61ec5b4a75b82f873c42757dc96455c900a523a4c7688d52fa781fa5c50b/livekit_plugins_anthropic-1.5.18.tar.gz", hash = "sha256:800da787d865b4560f87b4597d2f86cc5122b20bddc26c7f896e3d186a4d935c", size = 9283, upload-time = "2026-06-05T16:59:10.863Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dd/27/6611d0e86ce16d808086814d50e96b0cdf22fdf89a2160fffd984eee01c2/livekit_plugins_anthropic-1.5.18-py3-none-any.whl", hash = "sha256:bf58f98dbcc10b80e09cfda0bd602c20809a5e51db92af621a32141bca52d08a", size = 11046, upload-time = "2026-06-05T16:59:09.732Z" },
 ]
 
 [[package]]

@@ -13,7 +13,6 @@ export const SPONSORS = [
   { name: 'AWS', src: '/sponsors/aws.svg' },
   { name: 'MiniMax', src: '/sponsors/minimax.svg' },
   { name: 'Unsiloed AI', src: '/sponsors/unsiloed.svg' },
-  { name: 'Qwen', src: '/sponsors/qwen.svg' },
   { name: 'Moss', src: '/sponsors/moss.svg' },
 ] as const;
 

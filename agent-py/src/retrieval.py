@@ -207,7 +207,7 @@ class Retriever:
     # -- internal query plumbing ------------------------------------------- #
     async def _query(
         self, index: str, query: str, *, top_k: int, metadata_filter: dict | None = None
-    ) -> tuple[list[Any], float]:
+    ) -> tuple[list[Any], float, str | None]:
         options = (
             QueryOptions(top_k=top_k, filter=metadata_filter)
             if metadata_filter
@@ -228,13 +228,13 @@ class Retriever:
         start = time.perf_counter()
         try:
             result = await self._moss.query(index, query, options)
-        except Exception:
+        except Exception as exc:
             logger.exception("Moss query failed (index=%s, query=%r)", index, query)
-            return [], (time.perf_counter() - start) * 1000.0
+            return [], (time.perf_counter() - start) * 1000.0, str(exc)[:200]
         elapsed_ms = getattr(result, "time_taken_ms", None)
         if elapsed_ms is None:
             elapsed_ms = (time.perf_counter() - start) * 1000.0
-        return _docs(result), float(elapsed_ms)
+        return _docs(result), float(elapsed_ms), None
 
     def _cache_store(
         self,
@@ -278,16 +278,21 @@ class Retriever:
         cards: list[dict[str, Any]],
         *,
         cached: bool = False,
+        error: str | None = None,
     ) -> None:
-        # Remember the latest rows for this stream (used by re-synthesis).
-        self._latest[namespace] = rows
+        # Remember the latest rows for this stream (used by re-synthesis). Don't
+        # clobber a good prior result with an error (the card shows the error but
+        # synthesis keeps the last good rows).
+        if not error:
+            self._latest[namespace] = rows
         top_preview = (cards[0].get("text", "") if cards else "")[:120]
         logger.info(
-            "moss.retrieve namespace=%s results=%d latency=%.1fms cached=%s query=%r top=%r",
+            "moss.retrieve namespace=%s results=%d latency=%.1fms cached=%s error=%s query=%r top=%r",
             namespace,
             len(rows),
             elapsed_ms,
             cached,
+            bool(error),
             query,
             top_preview,
         )
@@ -303,6 +308,7 @@ class Retriever:
             "seq": self._seq,
             "snippets": cards,
             "cached": cached,
+            "error": error,
         }
         try:
             await self._on_result(event)
@@ -348,11 +354,16 @@ class Retriever:
 
         query = f"{state_code} personal injury {topic_norm.replace('_', ' ')}"
         filt = {"$and": [_eq("state", state_code), _eq("topic", topic_norm)]}
-        docs, elapsed = await self._query(STATE_LAW_INDEX, query, top_k=3, metadata_filter=filt)
+        docs, elapsed, err = await self._query(
+            STATE_LAW_INDEX, query, top_k=3, metadata_filter=filt
+        )
         if not docs:  # fall back to state-only if the topic pairing missed
-            docs, elapsed = await self._query(
+            docs, elapsed, err = await self._query(
                 STATE_LAW_INDEX, query, top_k=3, metadata_filter=_eq("state", state_code)
             )
+        if not docs and err:
+            await self._emit("state-law", query, [], elapsed, [], error=err)
+            return []
 
         rows = [
             LawSnippet(
@@ -382,32 +393,45 @@ class Retriever:
 
     # -- B) comparable settlements ----------------------------------------- #
     async def comparables(
-        self, accident_type: str, jurisdiction: str, severity: str, fault: str
+        self,
+        accident_type: str,
+        jurisdiction: str,
+        severity: str,
+        fault: str,
+        injury_keywords: list[str] | None = None,
     ) -> list[Settlement]:
         atype = _norm(accident_type)
         juris = (jurisdiction or "CA").strip().upper()[:2]
         sev = _norm(severity)
         flt = _norm(fault)
+        # Enhancement C: injury keywords from the parsed ER discharge sharpen the
+        # semantic query so the comparable range narrows to matching injuries.
+        injuries = " ".join(injury_keywords or [])
+        inj_key = ",".join(sorted(injury_keywords or []))
 
-        cache_key = f"settlements:{atype}:{juris}:{sev}:{flt}"
+        cache_key = f"settlements:{atype}:{juris}:{sev}:{flt}:{inj_key}"
         if self._cache_get(cache_key) is not None:
             hit = await self._emit_cached(cache_key)
             if hit is not None:
                 return hit
 
         query = (
-            f"{atype.replace('_', ' ')} {sev} severity {flt} fault {juris} settlement"
-        )
+            f"{atype.replace('_', ' ')} {sev} severity {flt} fault {juris} "
+            f"{injuries} settlement"
+        ).replace("  ", " ")
         filt = {"$and": [_eq("accident_type", atype), _eq("jurisdiction", juris)]}
-        docs, elapsed = await self._query(
+        docs, elapsed, err = await self._query(
             SETTLEMENTS_INDEX, query, top_k=6, metadata_filter=filt
         )
         if not docs:  # widen to accident type across jurisdictions
-            docs, elapsed = await self._query(
+            docs, elapsed, err = await self._query(
                 SETTLEMENTS_INDEX, query, top_k=6, metadata_filter=_eq("accident_type", atype)
             )
         if not docs:  # last resort: pure semantic
-            docs, elapsed = await self._query(SETTLEMENTS_INDEX, query, top_k=6)
+            docs, elapsed, err = await self._query(SETTLEMENTS_INDEX, query, top_k=6)
+        if not docs and err:
+            await self._emit("settlements", query, [], elapsed, [], error=err)
+            return []
 
         rows: list[Settlement] = []
         for d in docs:
@@ -474,7 +498,10 @@ class Retriever:
             f"{lang_code} {caller_location}".strip()
         )
         # Pull the whole (small) firm roster, then rank in Python.
-        docs, elapsed = await self._query(FIRMS_INDEX, query, top_k=10)
+        docs, elapsed, err = await self._query(FIRMS_INDEX, query, top_k=10)
+        if not docs and err:
+            await self._emit("firms", query, [], elapsed, [], error=err)
+            return []
 
         candidates: list[FirmMatch] = []
         for d in docs:
@@ -578,11 +605,14 @@ class Retriever:
                 return hit
 
         query = scenario or scen.replace("_", " ")
-        docs, elapsed = await self._query(
+        docs, elapsed, err = await self._query(
             PROCEDURES_INDEX, query, top_k=3, metadata_filter=_eq("scenario", scen)
         )
         if not docs:  # semantic fallback if the scenario tag missed
-            docs, elapsed = await self._query(PROCEDURES_INDEX, query, top_k=3)
+            docs, elapsed, err = await self._query(PROCEDURES_INDEX, query, top_k=3)
+        if not docs and err:
+            await self._emit("procedures", query, [], elapsed, [], error=err)
+            return []
 
         rows = [
             ProcedureSnippet(

@@ -16,9 +16,9 @@ import { getSandboxTokenSource } from '@/lib/utils';
 
 const IN_DEVELOPMENT = process.env.NODE_ENV !== 'production';
 
-function AppSetup() {
+function AppSetup({ agentName }: { agentName?: string }) {
   useDebugMode({ enabled: IN_DEVELOPMENT });
-  useAgentErrors();
+  useAgentErrors(agentName);
 
   return null;
 }
@@ -49,14 +49,15 @@ export function App({ appConfig }: AppProps) {
     });
   }, [appConfig]);
 
-  const session = useSession(
-    tokenSource,
-    appConfig.agentName ? { agentName: appConfig.agentName } : undefined
-  );
+  const session = useSession(tokenSource, {
+    ...(appConfig.agentName ? { agentName: appConfig.agentName } : {}),
+    // Cloud agent cold start (inference preload + first job) can exceed 20s default.
+    agentConnectTimeoutMilliseconds: 60_000,
+  });
 
   return (
     <AgentSessionProvider session={session}>
-      <AppSetup />
+      <AppSetup agentName={appConfig.agentName} />
       <main className="grid h-svh grid-cols-1 place-content-center">
         <ViewController appConfig={appConfig} />
       </main>

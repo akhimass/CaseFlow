@@ -137,7 +137,11 @@ class AdaptiveRetriever:
             tasks["state-law"] = self._retriever.state_law(jurisdiction, "sol")
         if "settlements" in namespaces:
             tasks["settlements"] = self._retriever.comparables(
-                accident_type, jurisdiction, severity, fault
+                accident_type,
+                jurisdiction,
+                severity,
+                fault,
+                injury_keywords=state.get("injury_keywords") or None,
             )
         if "firms" in namespaces:
             tasks["firms"] = self._retriever.firms(state, location)

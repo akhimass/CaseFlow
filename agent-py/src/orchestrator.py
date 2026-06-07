@@ -153,6 +153,7 @@ async def run_parallel_retrieval(
     scenario = _STAGE_SCENARIO.get(case_stage, "post_accident_72h")
     logger.info("orchestrator.fanout profile=%s stage=%s", profile, case_stage)
 
+    injury_keywords = case_data.get("injury_keywords") or None
     results = await asyncio.gather(
         retriever.state_law(profile["jurisdiction"], "sol"),
         retriever.comparables(
@@ -160,6 +161,7 @@ async def run_parallel_retrieval(
             profile["jurisdiction"],
             profile["severity"],
             profile["fault"],
+            injury_keywords=injury_keywords,
         ),
         retriever.firms(case_data, caller_location),
         retriever.procedures(scenario),

@@ -3,6 +3,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import textwrap
 import time
 import uuid
@@ -18,7 +19,6 @@ from livekit.agents import (
     UserInputTranscribedEvent,
     cli,
     function_tool,
-    inference,
     room_io,
 )
 from livekit.agents.llm import ChatMessage
@@ -28,17 +28,20 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from moss import DocumentInfo, MossClient, QueryOptions
 
 from adaptive_retrieval import AdaptiveRetriever
-from caseflow_userdata import CaseflowUserdata
 from aws_s3 import s3_configured, save_document_frame
 from bedrock_llm import bedrock_configured
 from case_broadcast import broadcast
 from case_completeness import case_completeness, completeness_crossed
 from case_persistence import CasePersistence
+from caseflow_userdata import CaseflowUserdata
 from citations import filter_citation_stream
-from consistency import audit_utterance
+from consistency import audit_utterance, check_cross_document, extract_injury_keywords
 from doc_intent import DocumentCaptureCoordinator, detect_document_intent
+from doc_thumbnail import make_redacted_thumbnail
 from document_generator import generate_intake_summary, generate_post_match_documents
-from gateway import _record_audit, gateway_configured, llm_configured, tts as gateway_tts
+from gateway import _record_audit, gateway_configured, llm_configured
+from gateway import tts as gateway_tts
+from llm_client import build_dialogue_llm, openai_direct_configured
 from metrics import MetricsTracker
 from minimax_voice import (
     LoggingSTT,
@@ -55,7 +58,6 @@ from minimax_voice import (
     voice_stt_payload,
     voice_tts_payload,
 )
-from llm_client import build_dialogue_llm, openai_direct_configured
 from openai_llm import openai_configured
 from orchestrator import run_parallel_retrieval, synthesize_and_emit
 from orchestrator import summarize as orchestrator_summarize
@@ -138,18 +140,68 @@ TRACKED_CASE_FIELDS = {
     "prior_representation",
 }
 
+# Two-letter state codes Caseflow covers, plus full-name aliases, for mapping a
+# parsed document location ("Orange County, CA") to a Moss jurisdiction filter.
+_STATE_NAMES = {
+    "california": "CA",
+    "texas": "TX",
+    "florida": "FL",
+}
+
+# Phrases that mark a caller's fault claim (used to remember the last one so the
+# discrepancy can be checked proactively after the police report is parsed).
+_FAULT_CLAIM_PHRASES = (
+    "red light",
+    "luz roja",
+    "pasó la luz",
+    "paso la luz",
+    "ran the",
+    "semáforo",
+    "their fault",
+    "su culpa",
+    "no fue mi culpa",
+    "not my fault",
+)
+
+
+def _state_from_location(location: str) -> str | None:
+    """Best-effort two-letter state code from a free-text location string."""
+    text = (location or "").strip()
+    if not text:
+        return None
+    match = re.search(r",\s*([A-Z]{2})\b", text)
+    if match:
+        return match.group(1)
+    lowered = text.lower()
+    for name, code in _STATE_NAMES.items():
+        if name in lowered:
+            return code
+    return None
+
+
 ARIA_INSTRUCTIONS = textwrap.dedent(
     """\
-    You are Aria, a bilingual (Spanish and English) video intake specialist for
+    You are the bilingual (Spanish and English) video intake specialist for
     Caseflow, a personal injury intake platform. You conduct intake over live
-    video — warm, professional, unhurried. Auto-detect the caller's language from
-    their first utterance and conduct the entire intake in that language.
+    video — warm, professional, unhurried.
+
+    You never give yourself a name. You are simply "the Caseflow intake
+    specialist." If the caller asks your name, say warmly that you are the
+    Caseflow intake assistant and move on — do not invent a personal name.
+
+    # Language
+
+    Always open the session in English: greet warmly, say you are here to help,
+    and invite them to describe what happened. After the caller's first utterance,
+    detect their language and conduct the rest of intake in that language only
+    (English or Spanish).
 
     # Intake flow
 
-    1. Greet first when the session starts — warm welcome as Aria, introduce Caseflow,
-       invite them to describe what happened. Never wait silently; never say "ask a
-       question" or "I'm listening."
+    1. Greet first when the session starts — in English only. Example tone:
+       "Welcome to Caseflow — take a breath, I'm here to help. Can you tell me
+       what happened?" Never wait silently; never say "ask a question" or
+       "I'm listening."
     2. Collect: accident type, date, state/jurisdiction, injuries, treatment so
        far, fault as the caller perceives it, prior representation.
     3. When documents are relevant, ask the caller to turn on their camera, hold the
@@ -183,6 +235,11 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
     until the end of the call. Reference what you retrieve conversationally — for
     example, "based on similar cases in California, settlements have ranged from
     $30,000 to $80,000" — never read results verbatim or say "Moss returned."
+
+    Always acknowledge what the caller just said in one warm sentence BEFORE you
+    surface any retrieved fact. Never open a turn with a statistic or a law
+    citation — respond to the person first, then weave in what you found. The
+    retrieval runs in the background; the caller should feel heard, not queried.
 
     # Consistency auditing
 
@@ -320,6 +377,10 @@ class Assistant(Agent):
         self._completeness_doc_fired = False
         self._match_docs_fired = False
         self._moss_after_first_turn = False
+        # Discrepancy + citation-trail state (Gap 5 / Enh F).
+        self._discrepancy_surfaced = False
+        self._last_fault_claim = ""
+        self._moss_citations: list[dict] = []
         self._persistence = CasePersistence(
             self._case_id,
             self._user_id,
@@ -358,12 +419,19 @@ class Assistant(Agent):
             "citation_id": citation_id,
             "timestamp": time.time(),
             "seq": self._cite_seq,
+            "turn": self._turn,
         }
         logger.info("CASEFLOW_CITE %s", citation_id)
+        # Enh F: keep a citation trail (last 32) so the evidence panel can show
+        # which Aria turn cited which retrieval.
+        self._moss_citations = [*self._moss_citations, event][-32:]
         # SSE path → firm dashboard (partial payload; the store merges it).
         with contextlib.suppress(Exception):
             await broadcast(
-                self._room, self._case_id, "cited_source", {"cited_source": event}
+                self._room,
+                self._case_id,
+                "cited_source",
+                {"cited_source": event, "moss_citations": self._moss_citations},
             )
         # LiveKit data packet on its own channel for in-room (intake) consumers.
         if self._room is not None:
@@ -510,24 +578,58 @@ class Assistant(Agent):
             },
         )
         await self._publish_document_event(doc_type, {}, status="parsing")
+        thumbnail = make_redacted_thumbnail(image_base64) if image_base64 else None
         if s3_configured():
             await save_document_frame(
                 self._case_id, turn=turn, doc_type=doc_type, image_base64=image_base64
             )
         parsed = await parse_document_tool(image_base64, doc_type)
+        meta = parsed.get("_meta", {}) if isinstance(parsed, dict) else {}
+
+        # Gap 1: a real Unsiloed failure surfaces as an error — never silent.
+        if meta.get("status") == "error":
+            await self._update_case(
+                "document_parse_error",
+                {
+                    "document_parsing": {
+                        "doc_type": doc_type,
+                        "status": "error",
+                        "provider": "Unsiloed",
+                        "error": meta.get("error", "parse failed"),
+                        "latency_ms": meta.get("latency_ms"),
+                        "turn": turn,
+                        "timestamp": time.time(),
+                    }
+                },
+            )
+            await self._publish_document_event(doc_type, parsed, status="error")
+            logger.warning("Unsiloed parse error for %s: %s", doc_type, meta.get("error"))
+            return parsed
+
         docs = self._case_data.get("documents") or {}
         if not isinstance(docs, dict):
             docs = {}
-        docs[doc_type] = {**parsed, "capture_source": source, "turn": turn}
+        entry = {**parsed, "capture_source": source, "turn": turn}
+        if thumbnail:
+            entry["thumbnail"] = thumbnail
+        docs[doc_type] = entry
+
+        # Gap 3 + Enh C: map parsed fields into case_state BEFORE the fan-out so
+        # comparables/state-law filter on the right jurisdiction + injuries.
+        derived = self._derive_case_fields(doc_type, parsed)
         await self._update_case(
             "document_parsed",
             {
                 "documents": docs,
+                **derived,
                 "document_parsing": {
                     "doc_type": doc_type,
                     "status": "parsed",
                     "provider": "Unsiloed",
-                    "field_count": len(parsed),
+                    "source": meta.get("source"),
+                    "field_count": meta.get("field_count", len(parsed)),
+                    "latency_ms": meta.get("latency_ms"),
+                    "low_confidence": meta.get("low_confidence", []),
                     "turn": turn,
                     "timestamp": time.time(),
                 },
@@ -543,7 +645,81 @@ class Assistant(Agent):
         )
         if doc_type in {"police_report", "er_discharge"}:
             self._spawn(self._run_retrieval_fanout())
+        # Gap 5 + Enh D: proactively run consistency now that a doc is parsed.
+        self._spawn(self._post_parse_consistency(doc_type))
         return parsed
+
+    def _derive_case_fields(self, doc_type: str, parsed: dict) -> dict:
+        """Map parsed document fields into case_state (Gap 3 + Enh C)."""
+        derived: dict = {}
+        if doc_type == "police_report":
+            location = str(parsed.get("location") or "")
+            if location:
+                derived["location"] = location
+                state = _state_from_location(location)
+                if state and not self._case_data.get("state"):
+                    derived["state"] = state
+            fault = str(parsed.get("fault_determination") or "").lower()
+            if "undetermin" in fault and not self._case_data.get("fault"):
+                derived["fault"] = "contested"
+        elif doc_type == "er_discharge":
+            diagnosis = str(parsed.get("primary_diagnosis") or "")
+            instructions = str(parsed.get("discharge_instructions") or "")
+            if diagnosis and not self._case_data.get("injuries"):
+                derived["injuries"] = diagnosis
+            keywords = extract_injury_keywords(
+                diagnosis, instructions, str(parsed.get("imaging_ordered") or "")
+            )
+            if keywords:
+                derived["injury_keywords"] = keywords
+        return derived
+
+    async def _post_parse_consistency(self, doc_type: str) -> None:
+        """Proactively surface discrepancies after a parse (Gap 5 + Enh D)."""
+        documents = self._case_data.get("documents") or {}
+        # Enh D — cross-document: police injury region vs ER discharge region.
+        cross = check_cross_document(
+            documents.get("police_report"),
+            documents.get("er_discharge"),
+            self._language,
+        )
+        if cross and not self._discrepancy_surfaced:
+            await self._surface_discrepancy(cross)
+            return
+        # Gap 5 — police fault undetermined vs the caller's fault claim, without
+        # relying on the LLM to choose audit_claim.
+        if doc_type != "police_report" or self._discrepancy_surfaced:
+            return
+        police = documents.get("police_report") or {}
+        fault = str(police.get("fault_determination") or "").lower()
+        if "undetermin" not in fault or not self._last_fault_claim:
+            return
+        result = await audit_utterance(
+            self._last_fault_claim,
+            language=self._language,
+            parsed_docs=documents,
+            state=str(self._case_data.get("state") or ""),
+            case_id=self._case_id,
+            turn=self._turn,
+            caller_id=self._user_id,
+        )
+        if result.get("conflict"):
+            await self._surface_discrepancy(result)
+
+    async def _surface_discrepancy(self, result: dict) -> None:
+        """Record a discrepancy and have Aria ask the clarifying question now."""
+        self._discrepancy_surfaced = True
+        self._voice_state.message_type = "empathetic"
+        with contextlib.suppress(Exception):
+            await self._persistence.on_consistency_audit(result)
+        audit_fields = {k: v for k, v in result.items() if k != "claims"}
+        await self._update_case(
+            "discrepancy_found", {"consistency_audit": result, **audit_fields}
+        )
+        question = result.get("clarifying_question")
+        if question and self.session is not None:
+            with contextlib.suppress(Exception):
+                await self.session.say(question, add_to_chat_ctx=True)
 
     def _s3_artifact_paths(self, doc_type: str | None = None) -> list[str]:
         bucket = os.getenv("AWS_S3_BUCKET", "caseflow-cases-dev")
@@ -614,14 +790,20 @@ class Assistant(Agent):
         self._spawn(self._preload_indexes())
         if self.session is None:
             return
+        if self._minimax_tts is not None:
+            self._voice_state.caller_language = "en"
+            self._voice_state.language_confirmed = False
+            apply_tts_options(self._minimax_tts, self._voice_state)
         await self.session.generate_reply(
             instructions=Instructions(
                 audio=(
-                    "The caller just joined live video intake. You are Aria from Caseflow. "
-                    "Greet them warmly RIGHT NOW — do not wait for them to speak first. "
-                    "Brief bilingual welcome (one line English, one line Spanish), then ask "
-                    "what happened. Two or three short sentences total. Never say "
-                    "'ask a question', 'I'm listening', or similar passive phrases."
+                    "The caller just joined live video intake. You are the Caseflow intake "
+                    "specialist. Greet them warmly RIGHT NOW in English only — do not wait for "
+                    "them to speak first. Say 'Welcome to Caseflow', that you are here to help, "
+                    "then ask what happened. Speak slowly and warmly. Two short sentences "
+                    "maximum. Do not give yourself a name. Do not speak Spanish until the "
+                    "caller responds in Spanish. Never say 'ask a question', 'I'm listening', "
+                    "or similar passive phrases."
                 ),
             ),
         )
@@ -994,13 +1176,18 @@ class Assistant(Agent):
             image_base64: Base64-encoded camera frame of the document.
             doc_type: police_report, er_discharge, or insurance_letter.
         """
-        parsed = await self._ingest_document(
-            doc_type,
-            image_base64,
-            turn=self._turn,
-            source="tool",
+        # Gap 1: never block Aria's turn on a multi-second Unsiloed parse — ingest
+        # in the background and let her keep talking; the dashboard shows progress
+        # and the parsed fields land via the document_parse events.
+        self._spawn(
+            self._ingest_document(
+                doc_type, image_base64, turn=self._turn, source="tool"
+            )
         )
-        return json.dumps(parsed)
+        label = doc_type.replace("_", " ")
+        if self._language.startswith("es"):
+            return f"Estoy revisando su {label} ahora mismo; un momento."
+        return f"I'm reading your {label} now — one moment."
 
     async def _run_retrieval_fanout(self) -> None:
         try:
@@ -1097,6 +1284,7 @@ class Assistant(Agent):
             caller_id=self._user_id,
         )
         if result.get("conflict"):
+            self._discrepancy_surfaced = True
             self._voice_state.message_type = "empathetic"
             await self._persistence.on_consistency_audit(result)
             audit_fields = {k: v for k, v in result.items() if k != "claims"}
@@ -1200,7 +1388,10 @@ def prewarm(proc: JobProcess):
 server.setup_fnc = prewarm
 
 
-@server.rtc_session(agent_name="caseflow-agent")
+CASEFLOW_AGENT_NAME = os.getenv("AGENT_NAME", "caseflow-agent")
+
+
+@server.rtc_session(agent_name=CASEFLOW_AGENT_NAME)
 async def my_agent(ctx: JobContext):
     ctx.log_context_fields = {"room": ctx.room.name}
 
@@ -1273,6 +1464,10 @@ async def my_agent(ctx: JobContext):
         voice_state.message_type = "default"
         assistant._turn += 1
         assistant._last_user_utterance = ev.transcript
+        # Remember the caller's most recent fault claim so the discrepancy can be
+        # checked proactively once the police report is parsed (Gap 5).
+        if any(p in ev.transcript.lower() for p in _FAULT_CLAIM_PHRASES):
+            assistant._last_fault_claim = ev.transcript
         assistant._sync_userdata()
 
         async def _after_transcript() -> None:

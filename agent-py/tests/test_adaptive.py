@@ -23,7 +23,9 @@ class _FakeRetriever:
         self.calls.append("state-law")
         return [_Row("state-law:ca-sol")]
 
-    async def comparables(self, accident_type, jurisdiction, severity, fault):
+    async def comparables(
+        self, accident_type, jurisdiction, severity, fault, injury_keywords=None
+    ):
         self.calls.append("settlements")
         return [_Row(self.comparable_id)]
 

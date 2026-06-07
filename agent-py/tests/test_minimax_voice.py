@@ -42,8 +42,8 @@ def test_resolve_caller_language_falls_back_to_transcript() -> None:
     )
 
 
-def test_language_boost_auto_until_confirmed() -> None:
-    assert language_boost_for("en", confirmed=False) == "auto"
+def test_language_boost_never_uses_auto() -> None:
+    assert language_boost_for("en", confirmed=False) == "English"
     assert language_boost_for("es", confirmed=True) == "Spanish"
     assert language_boost_for("en", confirmed=True) == "English"
 
@@ -81,6 +81,13 @@ def test_build_caseflow_stt_uses_deepgram_when_keyed(monkeypatch) -> None:
     monkeypatch.setenv("DEEPGRAM_API_KEY", "test-key")
     stt_instance = build_caseflow_stt()
     assert stt_instance.__class__.__module__.startswith("livekit.plugins.deepgram")
+
+
+def test_build_caseflow_stt_disables_detect_language_by_default(monkeypatch) -> None:
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "test-key")
+    monkeypatch.delenv("DEEPGRAM_DETECT_LANGUAGE", raising=False)
+    stt_instance = build_caseflow_stt()
+    assert stt_instance._opts.detect_language is False
 
 
 def test_caseflow_stt_model_defaults_to_deepgram_nova3(monkeypatch) -> None:

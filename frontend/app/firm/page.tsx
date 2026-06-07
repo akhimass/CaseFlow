@@ -9,6 +9,7 @@ import { ConsistencyAuditPanel } from '@/components/firm/consistency-audit-panel
 import { DocumentsPanel } from '@/components/firm/documents-panel';
 import { GatewayMetricsPanel } from '@/components/firm/gateway-metrics-panel';
 import { LiveTranscriptPanel } from '@/components/firm/live-transcript-panel';
+import { MossEvidenceTrail } from '@/components/firm/moss-evidence-trail';
 import { MossIntelligencePanel } from '@/components/firm/moss-intelligence-panel';
 import { PrivacyPanel } from '@/components/firm/privacy-panel';
 import { SponsorStrip } from '@/components/firm/sponsor-strip';
@@ -53,6 +54,8 @@ function CaseDetail({
       <VoiceBridgePanel record={record} />
 
       <MossIntelligencePanel record={record} />
+
+      <MossEvidenceTrail record={record} />
 
       <UnsiloedParsedPanel record={record} />
 

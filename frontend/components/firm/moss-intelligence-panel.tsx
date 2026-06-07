@@ -26,6 +26,7 @@ type MossRetrieval = {
   timestamp?: number;
   seq?: number;
   cached?: boolean;
+  error?: string | null;
   snippets?: Array<MossSnippet | string>;
 };
 
@@ -184,7 +185,11 @@ function StreamSection({
         ) : null}
       </div>
 
-      {snippets.length === 0 ? (
+      {retrieval?.error ? (
+        <p className="rounded border border-red-500/30 bg-red-500/5 px-2 py-1.5 text-xs text-red-600">
+          Retrieval failed: {retrieval.error}
+        </p>
+      ) : snippets.length === 0 ? (
         <p className="text-muted-foreground/70 text-xs">Awaiting retrieval…</p>
       ) : (
         <div className="space-y-2">

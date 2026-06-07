@@ -4,20 +4,49 @@ import type { CaseRecord } from '@/hooks/useCaseflowEvents';
 
 const FIELD_LABELS: Record<string, string> = {
   fault_determination: 'Fault determination',
+  other_driver_claim: 'Other driver claim',
   injuries: 'Injuries',
+  primary_diagnosis: 'Diagnosis',
   diagnosis: 'Diagnosis',
   treatment: 'Treatment',
+  discharge_instructions: 'Discharge instructions',
   imaging_ordered: 'Imaging ordered',
   incident_date: 'Incident date',
+  visit_date: 'Visit date',
   location: 'Location',
+  report_number: 'Report number',
   patient_name: 'Patient',
+};
+
+// Internal keys never shown as parsed fields.
+const HIDDEN_KEYS = new Set([
+  'capture_source',
+  'turn',
+  'raw',
+  'raw_excerpt',
+  'doc_type',
+  '_meta',
+  'thumbnail',
+  'parsed_summary',
+]);
+
+const VERIFY_THRESHOLD = 0.75;
+
+type DocMeta = {
+  confidence?: Record<string, number>;
+  low_confidence?: string[];
+  latency_ms?: number;
+  source?: string;
 };
 
 type ParsingStatus = {
   doc_type?: string;
   status?: string;
   provider?: string;
+  source?: string;
   field_count?: number;
+  latency_ms?: number;
+  error?: string;
   timestamp?: number;
 };
 
@@ -25,13 +54,18 @@ function formatDocType(docType: string): string {
   return docType.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function confColor(conf: number): string {
+  if (conf >= 0.85) return 'bg-emerald-500';
+  if (conf >= VERIFY_THRESHOLD) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+
 function FieldGrid({ fields }: { fields: Record<string, unknown> }) {
+  const meta = (fields._meta as DocMeta | undefined) ?? {};
+  const confidence = meta.confidence ?? {};
   const entries = Object.entries(fields).filter(
     ([key, value]) =>
-      !['capture_source', 'turn', 'raw'].includes(key) &&
-      value !== null &&
-      value !== undefined &&
-      String(value).trim() !== ''
+      !HIDDEN_KEYS.has(key) && value !== null && value !== undefined && String(value).trim() !== ''
   );
 
   if (entries.length === 0) {
@@ -40,12 +74,38 @@ function FieldGrid({ fields }: { fields: Record<string, unknown> }) {
 
   return (
     <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
-      {entries.map(([key, value]) => (
-        <div key={key} className="border-border rounded border px-2 py-1.5">
-          <dt className="text-muted-foreground text-xs">{FIELD_LABELS[key] ?? key}</dt>
-          <dd className="font-medium">{String(value)}</dd>
-        </div>
-      ))}
+      {entries.map(([key, value]) => {
+        const conf = confidence[key];
+        const low = conf !== undefined && conf < VERIFY_THRESHOLD;
+        return (
+          <div key={key} className="border-border rounded border px-2 py-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <dt className="text-muted-foreground text-xs">{FIELD_LABELS[key] ?? key}</dt>
+              {low ? (
+                <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:text-amber-400">
+                  verify with caller
+                </span>
+              ) : null}
+            </div>
+            <dd className={`mt-0.5 ${low ? 'text-muted-foreground' : 'font-medium'}`}>
+              {String(value)}
+            </dd>
+            {conf !== undefined ? (
+              <div className="mt-1 flex items-center gap-1.5">
+                <div className="bg-muted h-1 flex-1 overflow-hidden rounded-full">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${confColor(conf)}`}
+                    style={{ width: `${Math.round(conf * 100)}%` }}
+                  />
+                </div>
+                <span className="text-muted-foreground/70 text-[9px] tabular-nums">
+                  {Math.round(conf * 100)}%
+                </span>
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
     </dl>
   );
 }
@@ -74,29 +134,65 @@ export function UnsiloedParsedPanel({ record }: { record: CaseRecord }) {
         <h3 className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
           Unsiloed · live document parsing
         </h3>
-        {parsing?.status === 'parsing' && (
-          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
-            Parsing {formatDocType(String(parsing.doc_type ?? 'document'))}…
-          </span>
-        )}
-        {parsing?.status === 'parsed' && (
-          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-            {parsing.field_count ?? 0} fields extracted
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {parsing?.latency_ms ? (
+            <span className="text-muted-foreground/70 text-[10px] tabular-nums">
+              {Math.round(parsing.latency_ms)} ms
+            </span>
+          ) : null}
+          {parsing?.status === 'parsing' && (
+            <span className="animate-pulse rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+              Parsing {formatDocType(String(parsing.doc_type ?? 'document'))}…
+            </span>
+          )}
+          {parsing?.status === 'parsed' && (
+            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+              {parsing.field_count ?? 0} fields · {parsing.source ?? 'Unsiloed'}
+            </span>
+          )}
+          {parsing?.status === 'error' && (
+            <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-600">
+              Parse failed
+            </span>
+          )}
+        </div>
       </div>
+
+      {parsing?.status === 'error' && parsing.error ? (
+        <p className="mt-2 rounded border border-red-500/30 bg-red-500/5 px-2 py-1.5 text-xs text-red-600">
+          Unsiloed error: {parsing.error}. Ask the caller to re-show the document.
+        </p>
+      ) : null}
 
       {hasDocs && (
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {Object.entries(documents!).map(([docType, fields]) => (
-            <div key={docType} className="border-border bg-card rounded-lg border p-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold">{formatDocType(docType)}</span>
-                <span className="text-muted-foreground text-xs">Unsiloed Vision API</span>
+          {Object.entries(documents!).map(([docType, fields]) => {
+            const thumb = fields.thumbnail as string | undefined;
+            const meta = (fields._meta as DocMeta | undefined) ?? {};
+            return (
+              <div key={docType} className="border-border bg-card rounded-lg border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold">{formatDocType(docType)}</span>
+                  <span className="text-muted-foreground text-xs">
+                    {meta.source === 'demo_no_key' ? 'demo' : 'Unsiloed Vision API'}
+                  </span>
+                </div>
+                {thumb ? (
+                  <div className="mt-2">
+                    <img
+                      src={thumb}
+                      alt="Redacted document preview"
+                      className="border-border h-24 w-full rounded border object-cover"
+                    />
+                    <p className="text-muted-foreground/60 mt-0.5 text-[9px]">
+                      PII-redacted preview (blurred) — verify the parse matches the source
+                    </p>
+                  </div>
+                ) : null}
+                <FieldGrid fields={fields} />
               </div>
-              <FieldGrid fields={fields} />
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>

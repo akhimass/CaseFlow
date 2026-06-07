@@ -71,12 +71,20 @@ async def test_parse_document_tool_returns_payload() -> None:
         "location": "Orange County, CA",
     }
 
-    with patch.object(assistant, "_ingest_document", new_callable=AsyncMock, return_value=demo):
-        raw = await assistant.parse_document(ctx, "dGVzdA==", "police_report")
-        payload = json.loads(raw)
+    import asyncio
 
-    assert payload["doc_type"] == "police_report"
-    assert payload["fault_determination"] == "undetermined"
+    with patch.object(
+        assistant, "_ingest_document", new_callable=AsyncMock, return_value=demo
+    ) as ingest:
+        # Gap 1: the tool is non-blocking — it backgrounds the ingest and returns
+        # an acknowledgment immediately so Aria's turn never stalls on Unsiloed.
+        ack = await assistant.parse_document(ctx, "dGVzdA==", "police_report")
+        for _ in range(5):
+            await asyncio.sleep(0)  # let the spawned ingest task run
+
+    assert isinstance(ack, str) and "reading" in ack.lower()
+    ingest.assert_awaited_once()
+    assert ingest.await_args.args[0] == "police_report"
 
 
 @pytest.mark.asyncio

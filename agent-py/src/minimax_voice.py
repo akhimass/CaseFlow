@@ -97,13 +97,11 @@ def select_intensity(message_type: MessageType) -> int | None:
 
 
 def language_boost_for(code: str, *, confirmed: bool) -> str | None:
-    if not confirmed:
-        return "auto"
+    """Pin MiniMax to an explicit language — never ``auto`` (mis-detects as Chinese)."""
+    del confirmed
     if code.startswith("es"):
         return "Spanish"
-    if code.startswith("en"):
-        return "English"
-    return "auto"
+    return "English"
 
 
 def normalize_lang(code: str | None) -> CallerLanguage | None:
@@ -191,7 +189,7 @@ class VoiceSessionState:
         code = normalize_lang(lang) or self.caller_language
         if code == "es":
             return os.getenv("MINIMAX_VOICE_ID_ES", "Spanish_SereneWoman")
-        return os.getenv("MINIMAX_VOICE_ID_EN", "voice_agent_Female_Phone_4")
+        return os.getenv("MINIMAX_VOICE_ID_EN", "English_radiant_girl")
 
 
 def apply_tts_options(
@@ -259,7 +257,9 @@ def build_caseflow_stt() -> stt.STT:
 
         model = os.getenv("DEEPGRAM_MODEL", "nova-3")
         language = os.getenv("DEEPGRAM_LANGUAGE", "multi")
-        detect = os.getenv("DEEPGRAM_DETECT_LANGUAGE", "true").lower() in (
+        # Streaming STT cannot use Deepgram auto-detect; we resolve language from
+        # transcript text in LoggingSTT instead (resolve_caller_language).
+        detect = os.getenv("DEEPGRAM_DETECT_LANGUAGE", "false").lower() in (
             "1",
             "true",
             "yes",
@@ -484,6 +484,7 @@ class _LoggingSynthesizeStream(tts.SynthesizeStream):
 
         pump_task = asyncio.create_task(pump_input())
         logged = False
+        current_segment_id: str | None = None
         try:
             async for audio in self._inner:
                 if not self._emitter_ready:
@@ -495,6 +496,14 @@ class _LoggingSynthesizeStream(tts.SynthesizeStream):
                         stream=True,
                     )
                     self._emitter_ready = True
+
+                seg_id = audio.segment_id or audio.request_id or "caseflow-tts"
+                if current_segment_id != seg_id:
+                    if current_segment_id is not None:
+                        output_emitter.end_segment()
+                    output_emitter.start_segment(segment_id=seg_id)
+                    current_segment_id = seg_id
+
                 if not logged:
                     logged = True
                     first_ms = (time.perf_counter() - self._stream_start) * 1000
@@ -515,7 +524,8 @@ class _LoggingSynthesizeStream(tts.SynthesizeStream):
                     )
                 output_emitter.push(audio.frame.data.tobytes())
                 if audio.is_final:
-                    output_emitter.flush()
+                    output_emitter.end_segment()
+                    current_segment_id = None
         finally:
             pump_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

@@ -538,3 +538,108 @@ async def audit_utterance(
         "source": "audit",
         "claims": claims,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Document-derived helpers (Enhancement C) + cross-document consistency (D)
+# --------------------------------------------------------------------------- #
+
+# Injury keywords we recognize in ER-discharge / injury text, normalized to a
+# canonical term that sharpens the Moss comparables query.
+_INJURY_KEYWORDS: dict[str, str] = {
+    "whiplash": "whiplash",
+    "latigazo": "whiplash",
+    "cervical": "cervical sprain",
+    "neck": "cervical sprain",
+    "cuello": "cervical sprain",
+    "disc": "disc herniation",
+    "herniat": "disc herniation",
+    "fracture": "fracture",
+    "fractura": "fracture",
+    "concussion": "concussion",
+    "tbi": "concussion",
+    "shoulder": "shoulder injury",
+    "hombro": "shoulder injury",
+    "back": "back injury",
+    "espalda": "back injury",
+    "sprain": "sprain",
+    "laceration": "laceration",
+}
+
+_BODY_REGIONS = {
+    "neck": ("neck", "cervical", "cuello", "whiplash", "latigazo"),
+    "back": ("back", "lumbar", "thoracic", "espalda", "spine", "disc"),
+    "head": ("head", "concussion", "tbi", "cabeza", "skull"),
+    "shoulder": ("shoulder", "hombro", "clavicle", "ac joint"),
+    "wrist": ("wrist", "hand", "muñeca", "carpal"),
+    "knee": ("knee", "rodilla", "patella"),
+    "leg": ("leg", "tibia", "fibula", "ankle", "pierna"),
+}
+
+
+def extract_injury_keywords(*texts: str) -> list[str]:
+    """Canonical injury keywords found across the given texts (deduped, ordered)."""
+    blob = " ".join(t for t in texts if t).lower()
+    found: list[str] = []
+    for needle, canonical in _INJURY_KEYWORDS.items():
+        if needle in blob and canonical not in found:
+            found.append(canonical)
+    return found
+
+
+def _body_regions(text: str) -> set[str]:
+    lowered = (text or "").lower()
+    return {
+        region
+        for region, needles in _BODY_REGIONS.items()
+        if any(n in lowered for n in needles)
+    }
+
+
+def check_cross_document(
+    police: dict[str, Any] | None,
+    er: dict[str, Any] | None,
+    language: str = "en",
+) -> dict[str, Any] | None:
+    """Flag a mismatch between the police report and the ER discharge (Enh D).
+
+    Today: does the injury region implied by the police report (narrative) match
+    the ER discharge's diagnosed region? A mismatch is worth a gentle clarifying
+    question (e.g., report says head impact, ER treated only the neck).
+    """
+    if not police or not er:
+        return None
+    police_text = " ".join(
+        str(v) for k, v in police.items() if k not in ("_meta", "doc_type")
+    )
+    er_text = " ".join(str(v) for k, v in er.items() if k not in ("_meta", "doc_type"))
+    police_regions = _body_regions(police_text)
+    er_regions = _body_regions(er_text)
+    if not police_regions or not er_regions or (police_regions & er_regions):
+        return None  # no regions, or they overlap — consistent enough
+
+    pol = ", ".join(sorted(police_regions))
+    erg = ", ".join(sorted(er_regions))
+    if language.startswith("es"):
+        question = (
+            f"Quiero asegurarme de tener bien sus lesiones: el reporte menciona el "
+            f"área de {pol}, pero el alta del hospital habla de {erg}. ¿Me puede "
+            f"aclarar qué partes del cuerpo se lastimó?"
+        )
+    else:
+        question = (
+            f"I want to get your injuries right: the police report mentions the "
+            f"{pol} area, but the hospital discharge notes {erg}. Could you clarify "
+            f"which parts of your body were hurt?"
+        )
+    return {
+        "conflict": True,
+        "conflict_type": "cross_document",
+        "clarifying_question": question,
+        "reason": (
+            f"Police report injury region ({pol}) differs from ER discharge ({erg})."
+        ),
+        "confidence": 0.8,
+        "language": language,
+        "source": "cross_document",
+    }

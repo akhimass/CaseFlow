@@ -1,6 +1,8 @@
 #if os(iOS)
 import SwiftUI
 import LiveKit
+import PhotosUI
+import UIKit
 
 struct SessionView: View {
     @ObservedObject var manager: LiveKitManager
@@ -9,6 +11,8 @@ struct SessionView: View {
     @State private var showIntelligencePanel = false
     @State private var isCameraOn = false
     @State private var docCaptureActive = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var selectedPhotoImage: UIImage?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -23,19 +27,8 @@ struct SessionView: View {
                         auraPanel(width: geo.size.width)
 
                         // PiP: local camera preview
-                        if isCameraOn {
-                            LocalCameraView(room: manager.room)
-                                .frame(width: 100, height: 140)
-                                .clipShape(RoundedRectangle(cornerRadius: 14))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 14)
-                                        .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                                )
-                                .overlay(
-                                    DocumentCaptureOverlay(isActive: docCaptureActive),
-                                    alignment: .center
-                                )
-                                .shadow(radius: 8, y: 4)
+                        if isCameraOn || selectedPhotoImage != nil {
+                            previewTile
                                 .padding(16)
                         }
                     }
@@ -49,11 +42,30 @@ struct SessionView: View {
                 // Floating control bar
                 controlBar
                     .padding(.bottom, geo.safeAreaInsets.bottom + 16)
+
+                if let errorMessage = manager.errorMessage {
+                    VStack {
+                        Spacer()
+                        Text(errorMessage)
+                            .font(.cfCaption)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(Color.red.opacity(0.92), in: RoundedRectangle(cornerRadius: 14))
+                            .padding(.bottom, 96)
+                            .padding(.horizontal, 20)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
             .ignoresSafeArea(edges: .bottom)
         }
         .task { await manager.connect() }
         .onDisappear { Task { await manager.disconnect() } }
+        .onChange(of: selectedPhotoItem) { _, newItem in
+            guard let newItem else { return }
+            Task { await handleSelectedPhotoItem(newItem) }
+        }
     }
 
     // MARK: Subviews
@@ -160,6 +172,15 @@ struct SessionView: View {
                 }
             }
 
+            PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
+                ControlButton(
+                    icon: "photo.on.rectangle.angled",
+                    label: "Photo",
+                    isActive: selectedPhotoImage != nil,
+                    color: .orange
+                ) {}
+            }
+
             // End call
             ControlButton(
                 icon: "phone.down.fill",
@@ -177,6 +198,55 @@ struct SessionView: View {
         .padding(.vertical, 14)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
         .padding(.horizontal, 20)
+    }
+
+    private var previewTile: some View {
+        ZStack(alignment: .bottom) {
+            if let selectedPhotoImage {
+                Image(uiImage: selectedPhotoImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 100, height: 140)
+                    .clipped()
+            } else {
+                LocalCameraView(room: manager.room)
+                    .frame(width: 100, height: 140)
+            }
+
+            DocumentCaptureOverlay(isActive: docCaptureActive || selectedPhotoImage != nil)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+        )
+        .shadow(radius: 8, y: 4)
+    }
+
+    @MainActor
+    private func handleSelectedPhotoItem(_ item: PhotosPickerItem) async {
+        defer { selectedPhotoItem = nil }
+
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else { return }
+
+            let normalizedData: Data
+            if let image = UIImage(data: data), let jpeg = image.jpegData(compressionQuality: 0.92) {
+                selectedPhotoImage = image
+                normalizedData = jpeg
+            } else {
+                selectedPhotoImage = UIImage(data: data)
+                normalizedData = data
+            }
+
+            try await manager.sendDocumentFrame(
+                imageData: normalizedData,
+                docType: "insurance",
+                source: "photo_library"
+            )
+        } catch {
+            manager.errorMessage = error.localizedDescription
+        }
     }
 }
 

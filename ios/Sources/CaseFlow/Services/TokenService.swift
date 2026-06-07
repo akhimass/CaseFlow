@@ -1,4 +1,5 @@
 import Foundation
+import LiveKit
 
 actor TokenService {
     // Point this at your local dev server or Vercel deployment.
@@ -13,6 +14,14 @@ actor TokenService {
 
     func fetchConnectionDetails(agentMetadata: [String: String] = [:]) async throws -> ConnectionDetails {
         let url = Self.baseURL.appendingPathComponent("api/token")
+
+#if !targetEnvironment(simulator)
+        if let host = url.host, host == "localhost" || host == "127.0.0.1" {
+            throw TokenError.httpError(
+                "CASEFLOW_API_URL points to \(url.absoluteString). On a physical iPhone, point it at your Mac's LAN address or a deployed frontend so the app can fetch LiveKit tokens."
+            )
+        }
+#endif
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -33,6 +42,18 @@ actor TokenService {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(ConnectionDetails.self, from: data)
+    }
+}
+
+extension TokenService: TokenSourceFixed {
+    func fetch() async throws -> TokenSourceResponse {
+        let details = try await fetchConnectionDetails()
+        return TokenSourceResponse(
+            serverURL: URL(string: details.serverUrl)!,
+            participantToken: details.participantToken,
+            participantName: details.participantName,
+            roomName: details.roomName
+        )
     }
 }
 

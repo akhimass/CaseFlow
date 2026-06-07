@@ -354,7 +354,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = SGTF5KLLFR;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera is required for your video intake session with Aria.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Microphone is required to speak with Aria during your intake session.";
@@ -368,7 +368,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.caseflow.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bhajneekanand.caseflow;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -381,7 +381,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = SGTF5KLLFR;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera is required for your video intake session with Aria.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Microphone is required to speak with Aria during your intake session.";
@@ -395,7 +395,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.caseflow.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bhajneekanand.caseflow;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -444,7 +444,6 @@
 			productName = LiveKit;
 		};
 /* End XCSwiftPackageProductDependency section */
-
 	};
 	rootObject = A1000000000000000000000A /* Project object */;
 }

@@ -1,7 +1,9 @@
 #if os(iOS)
+import AVFoundation
 import Foundation
 import LiveKit
 import Combine
+import UIKit
 
 @MainActor
 final class LiveKitManager: ObservableObject {
@@ -14,58 +16,124 @@ final class LiveKitManager: ObservableObject {
     @Published var isConnected = false
     @Published var errorMessage: String?
 
-    let room = Room()
+    private let fallbackRoom = Room()
     private let tokenService = TokenService()
+    private var session: Session?
+    private var sessionObservation: AnyCancellable?
     private var audioLevelTask: Task<Void, Never>?
+
+    var room: Room {
+        session?.room ?? fallbackRoom
+    }
 
     // MARK: Connect
 
     func connect(agentMetadata: [String: String] = [:]) async {
+        _ = agentMetadata
         ariaState = .connecting
         errorMessage = nil
+        transcript = []
+        mossEvents = []
+        documentEvents = []
+
+        if session != nil {
+            await disconnect()
+        }
 
         do {
-            let details = try await tokenService.fetchConnectionDetails(agentMetadata: agentMetadata)
-            let connectOptions = ConnectOptions(autoSubscribe: true)
-            let roomOptions = RoomOptions(
-                defaultCameraCaptureOptions: CameraCaptureOptions(position: .front),
-                defaultAudioCaptureOptions: AudioCaptureOptions()
-            )
+            try await configureAudioSession()
+            let session = Session(tokenSource: tokenService)
+            self.session = session
+            session.room.add(delegate: self)
+            observeSession(session)
 
-            room.add(delegate: self)
+            try await session.start()
 
-            try await room.connect(
-                url: details.serverUrl,
-                token: details.participantToken,
-                connectOptions: connectOptions,
-                roomOptions: roomOptions
-            )
-
-            try await room.localParticipant.setMicrophone(enabled: true)
-            isConnected = true
-            ariaState = .waiting
+            syncFromSession()
+            if session.agent.agentState == nil {
+                ariaState = .waiting
+            }
         } catch {
             ariaState = .disconnected
             errorMessage = error.localizedDescription
+            sessionObservation?.cancel()
+            sessionObservation = nil
+            session = nil
         }
+    }
+
+    private func configureAudioSession() async throws {
+        let session = AVAudioSession.sharedInstance()
+        let permission = await withCheckedContinuation { continuation in
+            session.requestRecordPermission { granted in
+                continuation.resume(returning: granted)
+            }
+        }
+
+        guard permission else {
+            throw NSError(
+                domain: "CaseFlow.Audio",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Microphone access is required for Aria to hear you."]
+            )
+        }
+
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
+        try session.setActive(true)
     }
 
     func disconnect() async {
         audioLevelTask?.cancel()
         audioLevelTask = nil
-        await room.disconnect()
+        sessionObservation?.cancel()
+        sessionObservation = nil
+
+        let activeSession = session
+        session = nil
+
+        await activeSession?.end()
         isConnected = false
         ariaState = .disconnected
         audioLevel = 0
+        transcript = []
+        mossEvents = []
+        documentEvents = []
     }
 
     func setCamera(enabled: Bool) async throws {
         try await room.localParticipant.setCamera(enabled: enabled)
     }
 
+    func sendDocumentFrame(imageData: Data, docType: String, source: String) async throws {
+        guard let session else {
+            throw NSError(
+                domain: "CaseFlow.LiveKit",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Session is not connected."]
+            )
+        }
+
+        let imageBase64 = imageData.base64EncodedString()
+        let payload: [String: Any] = [
+            "type": "document_frame",
+            "data": [
+                "doc_type": docType,
+                "image_base64": "data:image/jpeg;base64,\(imageBase64)",
+                "turn": 0,
+                "source": source
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        try await session.room.localParticipant.publish(
+            data: data,
+            options: DataPublishOptions(reliable: true)
+        )
+    }
+
     // MARK: Audio level polling
 
     private func startAudioLevelPolling(track: RemoteAudioTrack) {
+        _ = track
         audioLevelTask?.cancel()
         audioLevelTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -78,6 +146,72 @@ final class LiveKitManager: ObservableObject {
                 try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
             }
         }
+    }
+
+    private func observeSession(_ session: Session) {
+        sessionObservation = session.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in
+                self?.syncFromSession()
+            }
+        }
+    }
+
+    private func syncFromSession() {
+        guard let session else { return }
+
+        isConnected = session.isConnected
+
+        if let sessionError = session.error {
+            errorMessage = sessionError.localizedDescription
+        } else if let agentError = session.agent.error {
+            errorMessage = agentError.localizedDescription
+        }
+
+        ariaState = resolveAriaState(session: session)
+
+        transcript = session.messages.compactMap { message in
+            let text: String
+            let isAgent: Bool
+
+            switch message.content {
+            case .agentTranscript(let value):
+                text = value
+                isAgent = true
+            case .userTranscript(let value):
+                text = value
+                isAgent = false
+            case .userInput(let value):
+                text = value
+                isAgent = false
+            }
+
+            return TranscriptMessage(text: text, isAgent: isAgent, timestamp: message.timestamp)
+        }
+    }
+
+    private func resolveAriaState(session: Session) -> AriaState {
+        if session.error != nil || session.agent.error != nil || session.agent.isFinished {
+            return .disconnected
+        }
+
+        if let agentState = session.agent.agentState {
+            switch agentState {
+            case .listening:
+                return .listening
+            case .thinking:
+                return .thinking
+            case .speaking:
+                return .speaking
+            case .idle, .initializing:
+                return session.isConnected ? .waiting : .connecting
+            }
+        }
+
+        if session.agent.isPending {
+            return session.isConnected ? .waiting : .connecting
+        }
+
+        return session.isConnected ? .waiting : .disconnected
     }
 
     // MARK: Data messages
@@ -123,12 +257,6 @@ final class LiveKitManager: ObservableObject {
     }
 
     // MARK: Transcript helpers
-
-    func appendTranscript(text: String, isAgent: Bool) {
-        let msg = TranscriptMessage(text: text, isAgent: isAgent, timestamp: .now)
-        transcript.append(msg)
-        if transcript.count > 100 { transcript.removeFirst() }
-    }
 }
 
 // MARK: - RoomDelegate

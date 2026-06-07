@@ -9,6 +9,7 @@ import {
 } from '@/components/agents-ui/agent-control-bar';
 import { useDocumentCapture } from '@/hooks/useDocumentCapture';
 import { useDocumentParseEvents } from '@/hooks/useDocumentParseEvents';
+import { useFirmRecommendations } from '@/hooks/useFirmRecommendations';
 import { useMossContextEvents } from '@/hooks/useMossContextEvents';
 import { cn } from '@/lib/shadcn/utils';
 import { IntakeIntelligencePanel } from './intake-intelligence-panel';
@@ -137,6 +138,7 @@ export function AgentSessionView_01({
   // Live "Knowledge Matches" surfaced from the agent's `moss_context` data messages.
   const mossEvents = useMossContextEvents();
   const documentParseEvents = useDocumentParseEvents();
+  const firmRecommendations = useFirmRecommendations();
   useDocumentCapture();
 
   const controls: AgentControlBarControls = {
@@ -181,6 +183,7 @@ export function AgentSessionView_01({
           messages={messages}
           mossEvents={mossEvents}
           documentParseEvents={documentParseEvents}
+          firmRecommendations={firmRecommendations}
           showMoss={conversationStarted}
         />
       </div>

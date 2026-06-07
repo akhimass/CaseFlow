@@ -3,8 +3,10 @@
 import { type AgentState, type ReceivedMessage } from '@livekit/components-react';
 import { AgentChatTranscript } from '@/components/agents-ui/agent-chat-transcript';
 import { DocumentParsingPanel } from '@/components/app/document-parsing-panel';
+import { FirmRecommendationCards } from '@/components/app/firm-recommendation-cards';
 import { MossResultsPanel } from '@/components/app/moss-results-panel';
 import type { DocumentParseEvent } from '@/hooks/useDocumentParseEvents';
+import type { FirmRecommendation } from '@/hooks/useFirmRecommendations';
 import type { MossContextEvent } from '@/hooks/useMossContextEvents';
 
 interface IntakeIntelligencePanelProps {
@@ -12,6 +14,7 @@ interface IntakeIntelligencePanelProps {
   messages: ReceivedMessage[];
   mossEvents: MossContextEvent[];
   documentParseEvents: DocumentParseEvent[];
+  firmRecommendations: FirmRecommendation[];
   showMoss: boolean;
 }
 
@@ -20,6 +23,7 @@ export function IntakeIntelligencePanel({
   messages,
   mossEvents,
   documentParseEvents,
+  firmRecommendations,
   showMoss,
 }: IntakeIntelligencePanelProps) {
   return (
@@ -42,6 +46,7 @@ export function IntakeIntelligencePanel({
 
       <div className="border-border max-h-[42%] shrink-0 overflow-y-auto border-t px-4 py-4 lg:px-6">
         <div className="space-y-4">
+          <FirmRecommendationCards firms={firmRecommendations} />
           <DocumentParsingPanel events={documentParseEvents} />
           <MossResultsPanel events={mossEvents} hidden={!showMoss} />
         </div>

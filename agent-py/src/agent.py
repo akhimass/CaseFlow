@@ -3,6 +3,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import textwrap
 import time
 import uuid
@@ -34,7 +35,7 @@ from case_broadcast import broadcast
 from case_completeness import case_completeness, completeness_crossed
 from case_persistence import CasePersistence
 from caseflow_userdata import CaseflowUserdata
-from citations import filter_citation_stream
+from citations import filter_citation_stream, strip_citations
 from comprehend_medical import extract_icd10_codes
 from consistency import (
     audit_utterance,
@@ -69,7 +70,7 @@ from minimax_voice import (
 from openai_llm import openai_configured
 from orchestrator import run_parallel_retrieval, synthesize_and_emit
 from orchestrator import summarize as orchestrator_summarize
-from pii_redaction import RedactionSession, moss_field_value
+from pii_redaction import RedactionSession, Redactor, moss_field_value
 from post_call import build_post_call_package
 from privacy_context import bind_redaction_session
 from privacy_ops import build_operational_case
@@ -135,6 +136,10 @@ MEMORY_INDEX = os.getenv("MOSS_MEMORY_INDEX_NAME", "memory")
 DEFAULT_USER_ID = "user_1"
 
 # Case fields that, when they change, trigger adaptive Moss re-retrieval (Part 4).
+# Residual PII placeholder (e.g. "[CF_NAME_1]") — stripped from the caller-facing
+# transcript as a safety net if unredaction ever misses one.
+_RESIDUAL_PLACEHOLDER_RE = re.compile(r"\[CF_[A-Z]+_\d+\]")
+
 TRACKED_CASE_FIELDS = {
     "state",
     "accident_type",
@@ -252,9 +257,17 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
     9. Save each field with save_case_field as you learn it.
     10. Call compute_case_strength (which also estimates case value from the
         financials) and match_firm before closing.
-    11. Close by naming the matched firm and confirming they will reach out the
-        next morning. Always connect the caller with a firm — never end by saying
-        you couldn't find a match.
+    11. Recommend and confirm before closing. When you match firms, the caller
+        sees firm cards on their screen (name, phone, why they fit). Name your top
+        recommendation and one reason it fits, then point them to the cards and ask
+        the caller to confirm they'd like to be connected — or to pick the firm
+        they prefer. Only after they confirm, close. Always surface at least one
+        firm — never end by saying you couldn't find a match.
+        Be realistic and time-aware about callback timing: don't promise a fixed
+        time. If it's during business hours the firm may reach out shortly; if it's
+        evening or night, say they'll likely reach out the next morning. Phrase it
+        as "soon" or "first thing tomorrow" depending on the time of day — never a
+        guaranteed slot.
 
     Note on location: the only location you ask the caller about is where the
     *accident* happened (it sets the jurisdiction for the law and comparables).
@@ -436,10 +449,13 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
       aunque usted mencionó que el otro se pasó el rojo. ¿Pudo verlo usted misma,
       o lo dedujo por cómo pasó el choque?"
 
-    Firm handoff / close (warm, concrete):
-      "Por lo que me cuenta, creo que un bufete con experiencia en casos como el
-      suyo en su zona puede ayudarle. Le voy a conectar con uno, y se comunicarán
-      con usted mañana por la mañana. ¿Le parece bien?"
+    Firm handoff / close (present the cards, ask them to confirm or choose):
+      "Le muestro en la pantalla los bufetes que mejor encajan con su caso, con su
+      teléfono y por qué encajan. El que más le recomiendo es Pacific Heights, por
+      su experiencia en casos como el suyo en su zona. ¿Quiere que le conecte con
+      ellos, o prefiere elegir otro de la lista?"
+      (After they confirm, time-aware close: "Perfecto. Se comunicarán con usted
+      en breve" if it's daytime, or "...mañana a primera hora" if it's de noche.)
 
     # Demo persona awareness
 
@@ -588,6 +604,22 @@ class Assistant(Agent):
         async for frame in Agent.default.tts_node(self, cleaned, model_settings):
             yield frame
 
+    async def transcription_node(self, text, model_settings):
+        """Clean the caller-facing transcript: drop [cite:...] markers and any
+        residual PII placeholders so the caller never sees '[cite:...]' or a
+        leaked '[CF_NAME_1]' in the on-screen conversation."""
+
+        async def _noop(_cid: str) -> None:
+            return
+
+        redactor = (
+            Redactor(self._redaction_session) if self._redaction_session else None
+        )
+        async for chunk in filter_citation_stream(text, _noop):
+            out = redactor.unredact(chunk) if redactor else chunk
+            out = _RESIDUAL_PLACEHOLDER_RE.sub("", out)
+            yield out
+
     async def _emit_citation(self, citation_id: str) -> None:
         """Broadcast a cited_source event (SSE to firm dashboard + LiveKit packet)."""
         self._cite_seq += 1
@@ -631,11 +663,14 @@ class Assistant(Agent):
     async def _append_transcript(
         self, speaker: str, text: str, language: str, turn: int
     ) -> None:
-        if not text.strip():
+        # Clean stored/displayed transcript: drop [cite:...] markers and any
+        # residual PII placeholder so neither the caller nor the firm sees them.
+        text = _RESIDUAL_PLACEHOLDER_RE.sub("", strip_citations(text)[0]).strip()
+        if not text:
             return
         line = {
             "speaker": speaker,
-            "text": text.strip(),
+            "text": text,
             "language": language,
             "turn": turn,
         }

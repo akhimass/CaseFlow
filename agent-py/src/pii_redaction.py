@@ -88,6 +88,123 @@ ENGLISH_GIVEN_NAMES = frozenset(
     }
 )
 
+# Place words that look like given names ("San Francisco", "Santa Ana", "San
+# Jose") must NOT be redacted — locations are needed for matching/law and a
+# redacted "[CF_NAME_1]" leaking into the transcript looks broken. Skip these
+# tokens, and skip any word that follows a place prefix.
+PLACE_PREFIXES = frozenset(
+    {
+        "san",
+        "santa",
+        "los",
+        "las",
+        "el",
+        "la",
+        "fort",
+        "ft",
+        "lake",
+        "mount",
+        "mt",
+        "saint",
+        "st",
+        "new",
+        "north",
+        "south",
+        "east",
+        "west",
+        "downtown",
+        "upper",
+        "lower",
+    }
+)
+PLACE_TOKENS = frozenset(
+    {
+        # CA
+        "francisco",
+        "diego",
+        "jose",
+        "angeles",
+        "ana",
+        "antonio",
+        "monica",
+        "barbara",
+        "clara",
+        "cruz",
+        "mateo",
+        "rafael",
+        "ramon",
+        "leandro",
+        "bernardino",
+        "joaquin",
+        "luis",
+        "obispo",
+        "bruno",
+        "carlos",
+        "pablo",
+        "juan",
+        "marcos",
+        "jacinto",
+        "anaheim",
+        "irvine",
+        "fullerton",
+        "oakland",
+        "fresno",
+        "sacramento",
+        "bakersfield",
+        "riverside",
+        "stockton",
+        "berkeley",
+        "pasadena",
+        "glendale",
+        "burbank",
+        "orange",
+        "county",
+        "valley",
+        "beach",
+        "hills",
+        "grove",
+        "vista",
+        "mesa",
+        "costa",
+        "newport",
+        "huntington",
+        "garden",
+        # TX
+        "houston",
+        "dallas",
+        "austin",
+        "worth",
+        "paso",
+        "arlington",
+        "harris",
+        "travis",
+        "bexar",
+        # FL
+        "miami",
+        "orlando",
+        "tampa",
+        "lauderdale",
+        "myers",
+        "petersburg",
+        "broward",
+        "dade",
+        "palm",
+        "jacksonville",
+        # generic geography
+        "city",
+        "town",
+        "village",
+        "park",
+        "springs",
+        "heights",
+        "ridge",
+        "creek",
+        "river",
+        "bay",
+        "downtown",
+    }
+)
+
 # Operational field names — values still scanned for embedded PII patterns.
 PII_FIELD_NAMES = frozenset(
     {
@@ -138,7 +255,9 @@ class RedactionSession:
             )
             self.total_redactions += 1
             hits.append(
-                RedactionHit(category=category, placeholder=placeholder, original=original)
+                RedactionHit(
+                    category=category, placeholder=placeholder, original=original
+                )
             )
         return hits
 
@@ -175,7 +294,7 @@ def _category_from_placeholder(placeholder: str) -> Category:
 class Redactor:
     def __init__(self, session: RedactionSession | None = None) -> None:
         self._session = session or RedactionSession()
-        self._counters: dict[Category, int] = {c: 0 for c in ALL_CATEGORIES}
+        self._counters: dict[Category, int] = dict.fromkeys(ALL_CATEGORIES, 0)
 
     @property
     def session(self) -> RedactionSession:
@@ -236,7 +355,9 @@ class Redactor:
             ),
             (
                 "bank_account",
-                re.compile(r"\b(?:account|cuenta)\s*(?:#|no\.?)?\s*[:\-]?\s*\d{8,17}\b", re.I),
+                re.compile(
+                    r"\b(?:account|cuenta)\s*(?:#|no\.?)?\s*[:\-]?\s*\d{8,17}\b", re.I
+                ),
             ),
             (
                 "address",
@@ -277,14 +398,23 @@ class Redactor:
 
         return pattern.sub(repl, text)
 
-    def _redact_names(
-        self, text: str, language: str, local_map: dict[str, str]
-    ) -> str:
-        names = SPANISH_GIVEN_NAMES if language.lower().startswith("es") else ENGLISH_GIVEN_NAMES
+    def _redact_names(self, text: str, language: str, local_map: dict[str, str]) -> str:
+        names = (
+            SPANISH_GIVEN_NAMES
+            if language.lower().startswith("es")
+            else ENGLISH_GIVEN_NAMES
+        )
         names = names | SPANISH_GIVEN_NAMES | ENGLISH_GIVEN_NAMES
 
         def repl_cap(match: re.Match[str]) -> str:
             first, last = match.group(1), match.group(2)
+            # Don't redact place names ("San Francisco", "Santa Ana", "Los Angeles").
+            if (
+                first.lower() in PLACE_PREFIXES
+                or first.lower() in PLACE_TOKENS
+                or last.lower() in PLACE_TOKENS
+            ):
+                return match.group(0)
             if first.lower() not in names and last.lower() not in names:
                 return match.group(0)
             original = f"{first} {last}"
@@ -305,6 +435,9 @@ class Redactor:
 
         def repl_given(match: re.Match[str]) -> str:
             word = match.group(0)
+            # Never redact place tokens ("Francisco", "Diego", "Angeles", ...).
+            if word.lower() in PLACE_TOKENS or word.lower() in PLACE_PREFIXES:
+                return word
             if word.lower() not in names:
                 return word
             if word in self._session.reverse:
@@ -355,7 +488,9 @@ def redact_json_values(
         redacted, _ = redactor.redact(value, language)
         return redacted
     if isinstance(value, list):
-        return [redact_json_values(v, session=session, language=language) for v in value]
+        return [
+            redact_json_values(v, session=session, language=language) for v in value
+        ]
     if isinstance(value, dict):
         return {
             k: redact_json_values(v, session=session, language=language)
@@ -364,7 +499,9 @@ def redact_json_values(
     return value
 
 
-def moss_field_value(field_name: str, value: str, *, session: RedactionSession, language: str) -> str:
+def moss_field_value(
+    field_name: str, value: str, *, session: RedactionSession, language: str
+) -> str:
     redactor = Redactor(session)
     if field_name.lower() in PII_FIELD_NAMES:
         redacted, _ = redactor.redact(value, language)
@@ -373,7 +510,9 @@ def moss_field_value(field_name: str, value: str, *, session: RedactionSession, 
     return redacted
 
 
-def sensitive_blob(case_id: str, case_data: dict[str, Any], session: RedactionSession) -> dict[str, Any]:
+def sensitive_blob(
+    case_id: str, case_data: dict[str, Any], session: RedactionSession
+) -> dict[str, Any]:
     return {
         "case_id": case_id,
         "case_data": case_data,

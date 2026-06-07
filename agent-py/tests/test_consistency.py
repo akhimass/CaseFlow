@@ -1,7 +1,9 @@
 import pytest
 
+import consistency
 from consistency import (
     audit_utterance,
+    bedrock_second_opinion,
     check_against_comparables,
     check_against_state_law,
     check_consistency,
@@ -37,24 +39,32 @@ async def test_maria_discrepancy_rules_fallback() -> None:
 
 
 _CA_SOL_LAW = [
-    {"text": "California statute of limitations for personal injury is 2 years (CCP §335.1)."}
+    {
+        "text": "California statute of limitations for personal injury is 2 years (CCP §335.1)."
+    }
 ]
 
 
 def test_state_law_check_flags_filing_window_overestimate() -> None:
-    claims = [{"claim_type": "filing_window", "claim_value": "5 years", "confidence": 0.85}]
+    claims = [
+        {"claim_type": "filing_window", "claim_value": "5 years", "confidence": 0.85}
+    ]
     conflict = check_against_state_law(claims, _CA_SOL_LAW, "en", state="CA")
     assert conflict and conflict["conflict_type"] == "claim_vs_state_law"
     assert "2 years" in conflict["clarifying_question"]
 
 
 def test_state_law_check_no_conflict_when_within_window() -> None:
-    claims = [{"claim_type": "filing_window", "claim_value": "2 years", "confidence": 0.85}]
+    claims = [
+        {"claim_type": "filing_window", "claim_value": "2 years", "confidence": 0.85}
+    ]
     assert check_against_state_law(claims, _CA_SOL_LAW, "en", state="CA") is None
 
 
 def test_comparables_check_flags_unrealistic_expectation() -> None:
-    claims = [{"claim_type": "expected_amount", "claim_value": "$500,000", "confidence": 0.8}]
+    claims = [
+        {"claim_type": "expected_amount", "claim_value": "$500,000", "confidence": 0.8}
+    ]
     comparables = [{"amount_high": 80000}, {"amount_high": 35000}]
     conflict = check_against_comparables(claims, comparables, "es")
     assert conflict and conflict["conflict_type"] == "expectation_vs_comparables"
@@ -84,3 +94,45 @@ async def test_audit_utterance_no_conflict_when_consistent() -> None:
         state="CA",
     )
     assert result["conflict"] is False
+
+
+# AWS Bedrock second-opinion
+
+
+@pytest.mark.asyncio
+async def test_bedrock_second_opinion_none_when_unconfigured() -> None:
+    # The autouse _no_gateway fixture strips AWS creds → Bedrock not configured.
+    verdict = await bedrock_second_opinion(
+        {"conflict_type": "verbal_vs_document", "reason": "fault undetermined"}
+    )
+    assert verdict is None
+
+
+@pytest.mark.asyncio
+async def test_bedrock_second_opinion_parses_verdict(monkeypatch) -> None:
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
+
+    async def _fake_converse(messages, **kwargs):
+        assert kwargs.get("model_id") == consistency.BEDROCK_AUDIT_MODEL
+        return {
+            "content": '{"agrees": true, "confidence": 0.9, '
+            '"assessment": "Police report contradicts the red-light claim."}',
+            "model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        }
+
+    monkeypatch.setattr(consistency, "bedrock_converse", _fake_converse)
+
+    verdict = await bedrock_second_opinion(
+        {
+            "conflict_type": "verbal_vs_document",
+            "reason": "Caller claims clear fault; police report undetermined.",
+            "clarifying_question": "Did you personally see the light?",
+        },
+        verbal_claim="el otro conductor pasó la luz roja",
+    )
+    assert verdict is not None
+    assert verdict["agrees"] is True
+    assert verdict["confidence"] == 0.9
+    assert verdict["provider"] == "bedrock"
+    assert "Police report" in verdict["assessment"]

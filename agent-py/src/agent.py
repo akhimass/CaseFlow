@@ -35,7 +35,12 @@ from case_completeness import case_completeness, completeness_crossed
 from case_persistence import CasePersistence
 from caseflow_userdata import CaseflowUserdata
 from citations import filter_citation_stream
-from consistency import audit_utterance, check_cross_document, extract_injury_keywords
+from consistency import (
+    audit_utterance,
+    bedrock_second_opinion,
+    check_cross_document,
+    extract_injury_keywords,
+)
 from doc_intent import DocumentCaptureCoordinator, detect_document_intent
 from doc_thumbnail import make_redacted_thumbnail
 from document_generator import generate_intake_summary, generate_post_match_documents
@@ -856,7 +861,7 @@ class Assistant(Agent):
             await self._surface_discrepancy(result)
 
     async def _surface_discrepancy(self, result: dict) -> None:
-        """Record a discrepancy and have Aria ask the clarifying question now."""
+        """Record a discrepancy and ask the clarifying question now."""
         self._discrepancy_surfaced = True
         self._voice_state.message_type = "empathetic"
         with contextlib.suppress(Exception):
@@ -869,6 +874,31 @@ class Assistant(Agent):
         if question and self.session is not None:
             with contextlib.suppress(Exception):
                 await self.session.say(question, add_to_chat_ctx=True)
+        # Independent AWS Bedrock (Claude) re-check runs in the background so it
+        # never delays the spoken question; the verdict lands on the dashboard.
+        self._spawn(self._verify_discrepancy(result))
+
+    async def _verify_discrepancy(self, result: dict) -> None:
+        """Confirm/refute the discrepancy with a second model on AWS Bedrock."""
+        try:
+            verdict = await bedrock_second_opinion(
+                result,
+                verbal_claim=self._last_fault_claim or "",
+                parsed_value=str(result.get("reason") or ""),
+            )
+        except Exception:
+            logger.exception("Bedrock second-opinion failed")
+            return
+        if not verdict:
+            return
+        enriched = {**result, "second_opinion": verdict}
+        with contextlib.suppress(Exception):
+            await self._persistence.on_consistency_audit(enriched)
+        audit_fields = {k: v for k, v in enriched.items() if k != "claims"}
+        await self._update_case(
+            "discrepancy_verified",
+            {"consistency_audit": enriched, "second_opinion": verdict, **audit_fields},
+        )
 
     def _s3_artifact_paths(self, doc_type: str | None = None) -> list[str]:
         bucket = os.getenv("AWS_S3_BUCKET", "caseflow-cases-dev")

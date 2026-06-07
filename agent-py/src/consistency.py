@@ -4,14 +4,29 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from typing import Any
 
+from bedrock_llm import (
+    bedrock_configured,
+    bedrock_converse,
+)
+from bedrock_llm import (
+    parse_json_object as _bedrock_parse_json,
+)
 from gateway import GATEWAY_MODEL, GatewayMetadata, chat, gateway_configured
 
 logger = logging.getLogger("consistency")
 
 CONSISTENCY_MODEL = GATEWAY_MODEL
+
+# Independent second-opinion model on AWS Bedrock — a *different* model family
+# (Claude) from the primary reasoning model, used to confirm or refute a flagged
+# discrepancy before we voice a clarifying question to the caller.
+BEDROCK_AUDIT_MODEL = os.getenv(
+    "BEDROCK_AUDIT_MODEL", "anthropic.claude-3-5-sonnet-20241022-v2:0"
+)
 
 
 def _parse_json_object(text: str) -> dict[str, Any] | None:
@@ -642,4 +657,71 @@ def check_cross_document(
         "confidence": 0.8,
         "language": language,
         "source": "cross_document",
+    }
+
+
+# --------------------------------------------------------------------------- #
+# AWS Bedrock second-opinion — independent verification of a discrepancy
+#
+# The primary consistency pass (gateway reasoning or rules) proposes a conflict.
+# Before we voice a clarifying question to a real caller, an independent model on
+# a different cloud (Claude on AWS Bedrock) re-reviews the same evidence and votes
+# confirm/refute. Two independent models materially lower the chance of an
+# embarrassing false-positive challenge. Fail-open: if Bedrock is unconfigured or
+# errors, the primary finding stands and nothing blocks the conversation.
+# --------------------------------------------------------------------------- #
+
+
+async def bedrock_second_opinion(
+    finding: dict[str, Any],
+    *,
+    verbal_claim: str = "",
+    parsed_value: str = "",
+    timeout_s: float = 6.0,
+) -> dict[str, Any] | None:
+    """Independently re-check a flagged discrepancy with Claude on AWS Bedrock.
+
+    Returns ``{"agrees", "confidence", "assessment", "model", "provider"}`` or
+    ``None`` when Bedrock is unavailable. ``agrees`` is whether the second model
+    confirms a genuine discrepancy worth a gentle clarifying question.
+    """
+    if not bedrock_configured():
+        return None
+
+    system = (
+        "You are an independent second reviewer for a personal-injury intake "
+        "consistency check. Another system flagged a possible discrepancy between "
+        "a caller's account and the evidence. Decide conservatively whether a "
+        "genuine discrepancy exists that warrants a gentle clarifying question. "
+        "Do not invent facts. Return JSON only: "
+        '{"agrees": bool, "confidence": 0..1, "assessment": "<one short sentence>"}.'
+    )
+    payload = {
+        "flagged_conflict_type": finding.get("conflict_type"),
+        "flagged_reason": finding.get("reason"),
+        "proposed_clarifying_question": finding.get("clarifying_question"),
+        "caller_verbal_claim": verbal_claim or None,
+        "parsed_evidence": parsed_value or None,
+        "extracted_claims": finding.get("claims"),
+    }
+    try:
+        result = await bedrock_converse(
+            messages=[{"role": "user", "content": [{"text": json.dumps(payload)}]}],
+            system=system,
+            temperature=0.0,
+            max_tokens=300,
+            timeout_s=timeout_s,
+            model_id=BEDROCK_AUDIT_MODEL,
+        )
+    except Exception as exc:
+        logger.info("Bedrock second-opinion skipped: %s", str(exc)[:160])
+        return None
+
+    parsed = _bedrock_parse_json(result.get("content", "")) or {}
+    return {
+        "agrees": bool(parsed.get("agrees", True)),
+        "confidence": float(parsed.get("confidence", 0.0) or 0.0),
+        "assessment": str(parsed.get("assessment", "")).strip(),
+        "model": result.get("model", BEDROCK_AUDIT_MODEL),
+        "provider": "bedrock",
     }

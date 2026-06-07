@@ -21,9 +21,7 @@ def bedrock_api_key() -> str | None:
 
 
 def bedrock_iam_configured() -> bool:
-    return bool(
-        os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY")
-    )
+    return bool(os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"))
 
 
 def bedrock_configured() -> bool:
@@ -31,11 +29,7 @@ def bedrock_configured() -> bool:
 
 
 def bedrock_region() -> str:
-    return (
-        os.getenv("AWS_REGION")
-        or os.getenv("AWS_DEFAULT_REGION")
-        or DEFAULT_REGION
-    )
+    return os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or DEFAULT_REGION
 
 
 def bedrock_model_id() -> str:
@@ -60,9 +54,7 @@ def split_openai_messages(
             if content:
                 system_parts.append(content)
         elif role in {"user", "assistant"}:
-            bedrock_messages.append(
-                {"role": role, "content": [{"text": content}]}
-            )
+            bedrock_messages.append({"role": role, "content": [{"text": content}]})
 
     system = "\n\n".join(system_parts) if system_parts else None
     return system, bedrock_messages
@@ -89,13 +81,14 @@ def _bearer_converse_sync(
     temperature: float,
     max_tokens: int,
     timeout_s: float,
+    model_id: str | None = None,
 ) -> dict[str, Any]:
     api_key = bedrock_api_key()
     if not api_key:
         raise RuntimeError(f"{BEDROCK_BEARER_ENV} is not configured")
 
     region = bedrock_region()
-    model_id = bedrock_model_id()
+    model_id = model_id or bedrock_model_id()
     payload: dict[str, Any] = {
         "messages": messages,
         "inferenceConfig": {
@@ -132,11 +125,12 @@ def _iam_converse_sync(
     system: str | None,
     temperature: float,
     max_tokens: int,
+    model_id: str | None = None,
 ) -> dict[str, Any]:
     import boto3
 
     region = bedrock_region()
-    model_id = bedrock_model_id()
+    model_id = model_id or bedrock_model_id()
     client = boto3.client(
         "bedrock-runtime",
         region_name=region,
@@ -166,8 +160,14 @@ async def bedrock_converse(
     temperature: float = 0.2,
     max_tokens: int = 1024,
     timeout_s: float = 30.0,
+    model_id: str | None = None,
 ) -> dict[str, Any]:
-    """Call Bedrock Converse via bearer token or IAM access keys."""
+    """Call Bedrock Converse via bearer token or IAM access keys.
+
+    ``model_id`` overrides the default fallback model — used for the Claude-on-
+    Bedrock second-opinion (``BEDROCK_AUDIT_MODEL``) which is a different model
+    family from the primary reasoning model.
+    """
     if not bedrock_configured():
         raise RuntimeError("Bedrock is not configured")
 
@@ -179,6 +179,7 @@ async def bedrock_converse(
             temperature=temperature,
             max_tokens=max_tokens,
             timeout_s=timeout_s,
+            model_id=model_id,
         )
 
     return await asyncio.to_thread(
@@ -187,6 +188,7 @@ async def bedrock_converse(
         system=system,
         temperature=temperature,
         max_tokens=max_tokens,
+        model_id=model_id,
     )
 
 

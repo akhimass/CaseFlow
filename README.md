@@ -117,7 +117,9 @@ implementation.
 | Layer              | Technology                                                                                  |
 | ------------------ | ------------------------------------------------------------------------------------------- |
 | Transport + Agents | LiveKit Cloud, LiveKit Agents (Python)                                                      |
-| Voice              | MiniMax TTS (speech-2.8-hd) + MiniMax-Text-01 dialogue; Deepgram nova-3 STT                 |
+| Voice              | MiniMax TTS (speech-2.8-hd); Deepgram nova-3 STT                                            |
+| Dialogue LLM       | Claude Haiku (tool calling) → MiniMax-Text-01 → TrueFoundry → LiveKit Inference (8s failover) |
+| Reasoning / audit  | Qwen via TrueFoundry gateway (`qwen-max` alias); rules + Bedrock second-opinion fallback     |
 | Retrieval          | Moss — four indexes (`state-law`, `settlements`, `firms`, `procedures`) + per-user `memory` |
 | Document AI        | Unsiloed (parse + `/v2/extract` schema extraction)                                          |
 | Model gateway      | TrueFoundry (single governed gateway, audit, PII guardrails)                                |
@@ -125,6 +127,23 @@ implementation.
 | Frontend           | Next.js (App Router), live case stream to firm dashboard                                    |
 | Persistence        | Supabase (structured records) + S3 (artifacts)                                              |
 | Clients            | Web (mobile Safari) + native iOS (Swift)                                                    |
+
+### Model fleet (performance-tuned)
+
+Each model has a defined job — no generic “one LLM does everything”:
+
+- **Claude (Anthropic)** — live intake dialogue primary. Native tool calling
+  (Moss search, document parse, firm match) with low latency via Haiku; audited
+  per turn to the firm dashboard.
+- **MiniMax-Text-01** — dialogue fallback and bilingual voice pairing with
+  Speech 2.8 HD TTS. `pronunciation_dict` for PI terms, explicit `language_boost`
+  (never `auto`), and `text_pacing` off for smooth playback under LiveKit Cloud.
+- **Qwen (TrueFoundry)** — consistency auditing, slot extraction, and reasoning
+  calls routed through the governed gateway with PII guardrails and 8s failover
+  to LiveKit Inference.
+
+Set `DIALOGUE_PRIMARY=anthropic|minimax` and `ANTHROPIC_API_KEY` / `MINIMAX_API_KEY`
+in `agent-py/.env` to switch the dialogue brain without code changes.
 
 ## Sponsor stack — how we built on top of each
 

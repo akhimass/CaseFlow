@@ -752,6 +752,26 @@ class Assistant(Agent):
             ",".join(c.get("code", "") for c in result["codes"]),
             result.get("severity"),
         )
+        with contextlib.suppress(Exception):
+            await _record_audit(
+                {
+                    "event_type": "comprehend_medical",
+                    "model_id": "comprehend-medical-icd10",
+                    "provider": (
+                        "aws-comprehend-medical"
+                        if result.get("source") == "comprehend_medical"
+                        else "local-icd10"
+                    ),
+                    "case_id": self._case_id,
+                    "caller_id": self._user_id,
+                    "payload": {
+                        "codes": [c.get("code") for c in result["codes"]],
+                        "severity": result.get("severity"),
+                        "source": result.get("source"),
+                    },
+                    "timestamp": time.time(),
+                }
+            )
         docs = self._case_data.get("documents")
         if isinstance(docs, dict) and isinstance(docs.get(doc_type), dict):
             docs[doc_type]["icd10"] = result
@@ -930,6 +950,23 @@ class Assistant(Agent):
             return
         if not verdict:
             return
+        with contextlib.suppress(Exception):
+            await _record_audit(
+                {
+                    "event_type": "second_opinion",
+                    "model_id": verdict.get("model", ""),
+                    "provider": verdict.get("provider", "bedrock"),
+                    "case_id": self._case_id,
+                    "turn": self._turn,
+                    "caller_id": self._user_id,
+                    "payload": {
+                        "agrees": verdict.get("agrees"),
+                        "confidence": verdict.get("confidence"),
+                        "conflict_type": result.get("conflict_type"),
+                    },
+                    "timestamp": time.time(),
+                }
+            )
         enriched = {**result, "second_opinion": verdict}
         with contextlib.suppress(Exception):
             await self._persistence.on_consistency_audit(enriched)

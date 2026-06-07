@@ -6,10 +6,12 @@ import Link from 'next/link';
 type MetricsPayload = {
   metrics?: {
     totalCalls: number;
+    totalModelCalls?: number;
     totalFailovers: number;
     totalCostUsd: number;
     qualityChecks: number;
     latencyByModel: Record<string, { count: number; avgLatencyMs: number }>;
+    byProvider?: Record<string, number>;
     failovers: Array<Record<string, unknown>>;
     recent: Array<Record<string, unknown>>;
   };
@@ -54,11 +56,30 @@ export default function AdminMetricsPage() {
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card title="Total calls" value={m?.totalCalls ?? 0} />
+          <Card title="Gateway calls" value={m?.totalCalls ?? 0} />
+          <Card title="Model calls (fleet)" value={m?.totalModelCalls ?? m?.totalCalls ?? 0} />
           <Card title="Failovers" value={m?.totalFailovers ?? 0} />
-          <Card title="Cost (USD)" value={(m?.totalCostUsd ?? 0).toFixed(4)} />
           <Card title="Quality checks" value={m?.qualityChecks ?? 0} />
         </div>
+
+        <section className="border-border rounded-lg border p-4">
+          <h2 className="mb-3 font-medium">Model fleet by provider</h2>
+          {m?.byProvider && Object.keys(m.byProvider).length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(m.byProvider).map(([provider, count]) => (
+                <span
+                  key={provider}
+                  className="border-border rounded-full border px-3 py-1 text-sm tabular-nums"
+                >
+                  <span className="font-medium">{provider}</span>{' '}
+                  <span className="text-muted-foreground">· {count}</span>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">No model calls recorded yet.</p>
+          )}
+        </section>
 
         <section className="border-border rounded-lg border p-4">
           <h2 className="mb-3 font-medium">Latency by model</h2>

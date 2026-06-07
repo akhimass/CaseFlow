@@ -46,6 +46,25 @@ class AuditStore {
       (r) => r.event_type === 'gateway_call' || r.event_type === 'tts_pass_through'
     );
     const failovers = calls.filter((r) => r.failover);
+
+    // The full model fleet — every model-touching call, gateway-routed or not —
+    // so the dashboard reflects that all model calls are audited (not just the
+    // TrueFoundry-routed ones).
+    const MODEL_EVENTS = new Set([
+      'gateway_call',
+      'tts_pass_through',
+      'second_opinion',
+      'comprehend_medical',
+    ]);
+    const modelCalls = this.records.filter((r) => MODEL_EVENTS.has(r.event_type));
+    const providerCounts = new Map<string, number>();
+    for (const call of modelCalls) {
+      const key = call.provider ?? 'unknown';
+      providerCounts.set(key, (providerCounts.get(key) ?? 0) + 1);
+    }
+    const byProvider = Object.fromEntries(
+      [...providerCounts.entries()].sort((a, b) => b[1] - a[1])
+    );
     const ttsCalls = this.records.filter((r) => r.event_type === 'tts_pass_through');
     const byModel = new Map<string, { count: number; latencySum: number }>();
 
@@ -68,10 +87,12 @@ class AuditStore {
 
     return {
       totalCalls: calls.length,
+      totalModelCalls: modelCalls.length,
       totalFailovers: failovers.length,
       totalTtsAudits: ttsCalls.length,
       totalCostUsd: calls.reduce((sum, r) => sum + (r.cost_usd ?? 0), 0),
       latencyByModel,
+      byProvider,
       qualityChecks: validatorScores.length,
       failovers: failovers.slice(-20),
       recent: this.list(50),

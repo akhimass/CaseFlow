@@ -327,6 +327,13 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
       something you hadn't asked yet, take it — don't re-ask it later.
     - Never lecture or list. You may offer one reassuring next step, briefly.
     - Silence is fine. Ask your one question and let them fill the space.
+    - NEVER recap or summarize the case mid-conversation. Do not list back what
+      you've gathered ("So far I have: 1)… 2)… 3)…") — it's robotic and annoying.
+      Just react briefly and ask the next thing. The ONLY time you summarize is the
+      very end, in one or two sentences, alongside the firm recommendation.
+    - After a document is read, say the ONE key thing it showed in a short
+      sentence ("Okay — your police report lists fault as undetermined") and move
+      on. Don't enumerate every field.
 
     # Camera and documents
 
@@ -1835,20 +1842,59 @@ class Assistant(Agent):
         if not isinstance(ud, CaseflowUserdata):
             ud = self._userdata
         location = (caller_location or ud.caller_location or "").strip()
-        result = match_firm(ud.case_data, location)
         self._voice_state.message_type = "reassuring"
+
+        # SINGLE source of truth: the Moss firm leads are exactly what the caller's
+        # recommendation cards and the firm dashboard show — so the firm you NAME
+        # must be leads[0], never a separate local ranking (that caused the spoken
+        # recommendation to disagree with the on-screen cards).
+        leads = await self._retriever.firm_leads(self._case_data, location)
+        if leads:
+            lead_dicts = rows_to_dicts(leads)
+            top = leads[0]
+            matches = [
+                {
+                    "firm_id": ld.firm_id,
+                    "name": ld.name,
+                    "phone": ld.phone,
+                    "score": ld.score,
+                    "reasoning": "; ".join(ld.match_reasons) or "Moss lead-gen match",
+                }
+                for ld in leads
+            ]
+            result = {
+                "matches": matches,
+                "matched_firm_id": top.firm_id,
+                "recommended_firm": top.name,
+            }
+            await self._persistence.on_firms_matched(result)
+            await self._update_case(
+                "firms_matched",
+                {
+                    "moss_firm_leads": lead_dicts,
+                    "matches": matches,
+                    "matched_firm_id": top.firm_id,
+                    "recommended_firm": top.name,
+                },
+            )
+            await self._publish_firm_recommendations(lead_dicts)
+            return (
+                f"RECOMMEND THIS FIRM (say it by name): {top.name} ({top.phone}). "
+                + "\n\n".join(ld.summary() for ld in leads)
+            )
+
+        # Fallback: local roster (only if Moss returns nothing).
+        result = match_firm(ud.case_data, location)
         await self._persistence.on_firms_matched(result)
         await self._update_case("firms_matched", result)
-        # Always surface the Moss-backed firm cards on the caller's screen at the
-        # recommendation moment, even if the agent skipped retrieve_matching_firms.
-        with contextlib.suppress(Exception):
-            leads = await self._retriever.firm_leads(self._case_data, location)
-            if leads:
-                lead_dicts = rows_to_dicts(leads)
-                await self._update_case(
-                    "firm_leads_retrieved", {"moss_firm_leads": lead_dicts}
-                )
-                await self._publish_firm_recommendations(lead_dicts)
+        matches = result.get("matches") or []
+        if matches:
+            await self._publish_firm_recommendations(matches)
+            top = matches[0]
+            return (
+                f"RECOMMEND THIS FIRM (say it by name): {top.get('name')} "
+                f"({top.get('phone', '')}). " + json.dumps(result)
+            )
         return json.dumps(result)
 
     @function_tool()

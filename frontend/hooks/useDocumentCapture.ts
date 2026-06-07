@@ -27,9 +27,9 @@ function docLabel(docType: string, lang: string): string {
 }
 
 // Cap the longest side so a full-res phone frame (often 1920px+) doesn't make
-// Unsiloed parsing crawl. ~1400px keeps document text legible for OCR while
+// Unsiloed parsing crawl. ~1100px keeps document text legible for OCR while
 // cutting parse time substantially.
-const MAX_FRAME_PX = 1400;
+const MAX_FRAME_PX = 1100;
 
 async function captureLocalVideoFrame(videoElement: HTMLVideoElement): Promise<string | null> {
   const vw = videoElement.videoWidth;

@@ -20,6 +20,7 @@ from livekit.agents import (
     function_tool,
     room_io,
 )
+from livekit.agents import metrics as lk_metrics
 from livekit.agents.llm import ChatMessage
 from livekit.agents.llm.chat_context import Instructions
 from livekit.plugins import ai_coustics, silero
@@ -1585,6 +1586,44 @@ async def my_agent(ctx: JobContext):
     @session.on("close")
     def _on_session_close(_ev) -> None:
         assistant._spawn(assistant._finalize_post_call())
+
+    # Part 1 diagnostics: emit one TURN_LATENCY line per turn from LiveKit's own
+    # per-component metrics, correlated by speech_id. Spans are in ms:
+    #   vad      = end-of-utterance delay (caller stops -> turn confirmed)
+    #   llm_ttft = LLM time to first token
+    #   tts_ttfb = TTS time to first audio byte
+    #   total    = vad + llm_ttft + tts_ttfb (perceived caller-stops -> agent-speaks)
+    _turn_latency: dict[str, dict[str, float]] = {}
+
+    @session.on("metrics_collected")
+    def _on_metrics(ev) -> None:
+        m = ev.metrics
+        sid = getattr(m, "speech_id", None)
+        if not sid:
+            return
+        slot = _turn_latency.setdefault(sid, {})
+        if isinstance(m, lk_metrics.EOUMetrics):
+            slot["vad"] = (m.end_of_utterance_delay or 0.0) * 1000.0
+        elif isinstance(m, lk_metrics.LLMMetrics):
+            if not m.cancelled and m.ttft and m.ttft > 0:
+                slot["llm"] = m.ttft * 1000.0
+        elif isinstance(m, lk_metrics.TTSMetrics):
+            if m.cancelled or not m.ttfb:
+                return
+            vad = slot.get("vad", 0.0)
+            llm = slot.get("llm", 0.0)
+            tts = m.ttfb * 1000.0
+            logger.info(
+                "TURN_LATENCY case_id=%s turn=%s vad=%.0fms llm_ttft=%.0fms "
+                "tts_ttfb=%.0fms total=%.0fms",
+                assistant._case_id,
+                assistant._turn,
+                vad,
+                llm,
+                tts,
+                vad + llm + tts,
+            )
+            _turn_latency.pop(sid, None)
 
     @session.on("agent_state_changed")
     def _on_agent_state_changed(ev) -> None:

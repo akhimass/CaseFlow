@@ -49,19 +49,45 @@ PI_PRONUNCIATION: dict[str, list[str]] = {
     "demand letter": ["demand/de-mand", "letter/let-ter"],
 }
 
-# Deepgram nova-3 keyterms tuned for the Maria Delgado PI demo.
+# Deepgram nova-3 keyterms tuned for the Maria Delgado PI demo. The accident
+# vocabulary up top biases recognition toward how callers actually open ("I got
+# into a car wreck") so it stops mishearing them ("car bench").
 CASEFLOW_PI_KEYTERMS: tuple[str, ...] = (
-    "semáforo",
-    "luz roja",
+    # Accident vocabulary (English) — the most common opening phrases.
+    "car accident",
+    "car crash",
+    "car wreck",
+    "wreck",
+    "crash",
+    "collision",
+    "accident",
+    "fender bender",
+    "T-bone",
+    "sideswiped",
+    "hit from behind",
+    "got rear-ended",
+    "hit and run",
+    # Accident vocabulary (Spanish).
+    "accidente",
+    "choque",
+    "me chocaron",
+    "atropello",
+    # Injuries / treatment.
     "whiplash",
     "latigazo cervical",
+    "neck pain",
+    "back pain",
+    "concussion",
+    "MRI",
+    "resonancia magnética",
+    # Demo-specific terms.
+    "semáforo",
+    "luz roja",
     "rear-ended",
     "rear ended",
     "personal injury",
     "Orange County",
     "police report",
-    "MRI",
-    "resonancia magnética",
     "statute of limitations",
     "red light",
     "intersection",
@@ -233,7 +259,10 @@ def build_minimax_tts(*, state: VoiceSessionState) -> minimax.TTS:
         pronunciation_dict={"tone": pronunciation_tone_entries(state)},
         audio_format="pcm",
         sample_rate=24000,
-        text_pacing=True,
+        # Pacing holds sentences back to time them against playback; with network
+        # latency that starves the emitter and makes speech choppy. Let MiniMax
+        # generate continuously instead (plugin default).
+        text_pacing=False,
     )
 
 

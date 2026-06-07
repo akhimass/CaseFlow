@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AwsArtifactsPanel } from '@/components/firm/aws-artifacts-panel';
@@ -10,6 +10,7 @@ import { DocumentsPanel } from '@/components/firm/documents-panel';
 import { GatewayMetricsPanel } from '@/components/firm/gateway-metrics-panel';
 import { LiveTranscriptPanel } from '@/components/firm/live-transcript-panel';
 import { MossEvidenceTrail } from '@/components/firm/moss-evidence-trail';
+import { MossFirmLeadsPanel } from '@/components/firm/moss-firm-leads-panel';
 import { MossIntelligencePanel } from '@/components/firm/moss-intelligence-panel';
 import { PrivacyPanel } from '@/components/firm/privacy-panel';
 import { SponsorStrip } from '@/components/firm/sponsor-strip';
@@ -44,6 +45,18 @@ function CaseDetail({
 
   return (
     <div className="space-y-6">
+      <div className="from-primary/5 border-border flex flex-col gap-3 rounded-xl border bg-gradient-to-r to-transparent p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-sm font-semibold">Caseflow Counsel — voice briefing</div>
+          <p className="text-muted-foreground text-sm">
+            Have the agent walk you through this lead and answer your questions out loud.
+          </p>
+        </div>
+        <Button asChild>
+          <Link href={`/firm/brief/${String(record.case_id)}`}>Brief me on this case</Link>
+        </Button>
+      </div>
+
       <PrivacyPanel record={record} revealed={revealed} onReveal={onReveal} />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -54,6 +67,8 @@ function CaseDetail({
       <VoiceBridgePanel record={record} />
 
       <MossIntelligencePanel record={record} />
+
+      <MossFirmLeadsPanel record={record} />
 
       <MossEvidenceTrail record={record} />
 
@@ -144,6 +159,11 @@ export default function FirmPage() {
   const [session, setSession] = useState<FirmSession | null | undefined>(undefined);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
+  const [autoBrief, setAutoBrief] = useState(false);
+
+  useEffect(() => {
+    setAutoBrief(localStorage.getItem('caseflow_auto_brief') === 'on');
+  }, []);
 
   useEffect(() => {
     fetch('/api/firm/session')
@@ -165,6 +185,23 @@ export default function FirmPage() {
     () => firmCases.find((c) => c.case_id === selectedId) ?? firmCases[0],
     [firmCases, selectedId]
   );
+
+  // Auto-brief: when a genuinely new lead arrives (after the initial snapshot),
+  // jump straight into the voice briefing. Seeded once so we don't redirect on
+  // first load.
+  const seenCaseIds = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const ids = firmCases.map((c) => String(c.case_id));
+    if (seenCaseIds.current === null) {
+      seenCaseIds.current = new Set(ids);
+      return;
+    }
+    const fresh = ids.filter((id) => !seenCaseIds.current!.has(id));
+    fresh.forEach((id) => seenCaseIds.current!.add(id));
+    if (autoBrief && fresh.length > 0) {
+      router.push(`/firm/brief/${fresh[0]}`);
+    }
+  }, [firmCases, autoBrief, router]);
 
   if (session === undefined) {
     return (
@@ -197,6 +234,18 @@ export default function FirmPage() {
             <span className="text-muted-foreground text-sm">
               {connected ? 'Live' : 'Reconnecting…'}
             </span>
+            <Button
+              variant={autoBrief ? 'default' : 'outline'}
+              size="sm"
+              aria-pressed={autoBrief}
+              onClick={() => {
+                const next = !autoBrief;
+                setAutoBrief(next);
+                localStorage.setItem('caseflow_auto_brief', next ? 'on' : 'off');
+              }}
+            >
+              {autoBrief ? 'Auto-brief: On' : 'Auto-brief: Off'}
+            </Button>
             <Button asChild variant="outline" size="sm">
               <Link href="/admin/metrics">Metrics</Link>
             </Button>

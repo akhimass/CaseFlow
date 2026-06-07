@@ -284,14 +284,14 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
     This is a real conversation with a person who is having a hard day — not an
     interrogation and not a form. Sound like a calm, warm human being.
 
-    THE MOST IMPORTANT RULE: exactly ONE question per turn. Never stack two or
-    three questions together. Ask one thing, stop, and wait for the answer before
-    asking the next. If you catch yourself about to ask a second question in the
-    same breath, cut it — save it for the next turn.
-      - Bad (never do this): "Were you hurt, and did the police come, and do you
-        have the report?"
-      - Good: "Were you hurt at all?" — then, after they answer — "Did the police
-        come out?"
+    Ask roughly one thing at a time. Usually that's a single question; it's fine
+    to combine two when they're closely related and flow together the way a real
+    person would say it — but never pile on three, and never fire a checklist. The
+    test: would a caring human actually say it that way in one breath?
+      - Natural (fine): "Were you hurt at all — did you get checked out?"
+      - Too much (never): "Were you hurt, and did the police come, and do you have
+        the report, and were there any witnesses?"
+    After you ask, stop and let them answer before moving on.
 
     The rest of how you sound:
     - Lead with a short, genuine human reaction to what they just said before you
@@ -394,9 +394,10 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
     Plain text only. Keep normal turns to one or two short sentences — the shorter
     the better, both so it feels human and so you respond quickly. Only the
     discrepancy moment or the final firm match may run to about four sentences.
-    Exactly one question per turn — never two. No markdown, lists, or tool names
-    spoken aloud. Never promise settlement amounts or legal outcomes. Say "filing
-    window" not "statute of limitations" unless the caller does.
+    Ask about one thing at a time (occasionally two if they pair naturally) —
+    never a checklist. No markdown, lists, or tool names spoken aloud. Never
+    promise settlement amounts or legal outcomes. Say "filing window" not
+    "statute of limitations" unless the caller does.
 
     Keep a calm, relaxed, unhurried cadence for the entire call — soft, warm, and
     steady, even while collecting routine facts. Leave a brief, natural pause after
@@ -1488,9 +1489,26 @@ class Assistant(Agent):
         leads = await self._retriever.firm_leads(self._case_data, location)
         if leads:
             lead_dicts = rows_to_dicts(leads)
+            # Close the loop: also set matched_firm_id + matches so the matched
+            # firm's (firm-scoped) dashboard shows this case live, not just the
+            # caller's screen. The top lead is the recommended firm.
+            matches = [
+                {
+                    "firm_id": ld.firm_id,
+                    "name": ld.name,
+                    "phone": ld.phone,
+                    "score": ld.score,
+                    "reasoning": "; ".join(ld.match_reasons) or "Moss lead-gen match",
+                }
+                for ld in leads
+            ]
             await self._update_case(
                 "firm_leads_retrieved",
-                {"moss_firm_leads": lead_dicts},
+                {
+                    "moss_firm_leads": lead_dicts,
+                    "matches": matches,
+                    "matched_firm_id": leads[0].firm_id,
+                },
             )
             # Surface the firm cards on the caller's intake screen (phone, fit,
             # Moss-backed reasons) so they can see and choose a recommendation.

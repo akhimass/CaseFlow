@@ -32,6 +32,7 @@ from case_tools import (
     mock_sms_confirmation,
     parse_document_unsiloed,
 )
+from llm_client import build_caseflow_llm
 from sol_lookup import check_sol
 
 logger = logging.getLogger("agent")
@@ -85,7 +86,7 @@ class Assistant(Agent):
 
     def __init__(self, *, room=None, user_id: str = DEFAULT_USER_ID) -> None:
         super().__init__(
-            llm=inference.LLM(model="openai/gpt-5.2-chat-latest"),
+            llm=build_caseflow_llm(case_id=user_id),
             instructions=ARIA_INSTRUCTIONS,
         )
         self._room = room

@@ -20,7 +20,7 @@ export function LandingPage() {
             <Link href="/intake" className="hover:text-foreground">
               Start intake
             </Link>
-            <Link href="/firm" className="hover:text-foreground">
+            <Link href="/dashboard" className="hover:text-foreground">
               Firm dashboard
             </Link>
           </nav>
@@ -50,7 +50,7 @@ export function LandingPage() {
                 <Link href="/intake">Start intake</Link>
               </Button>
               <Button asChild variant="outline" size="lg">
-                <Link href="/firm">Firm dashboard</Link>
+                <Link href="/dashboard">Firm dashboard</Link>
               </Button>
             </div>
           </div>

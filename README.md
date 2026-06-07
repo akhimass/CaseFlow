@@ -70,15 +70,6 @@ retrieval as the core, not an afterthought.
    retrieved law and comparables), independently audited, and downloadable from the
    firm dashboard. The firm receives a case file, not a lead.
 
-## Demo (Maria Delgado)
-
-Spanish-speaking, rear-ended in Orange County. Holds up a police report (fault
-undetermined) and an ER discharge (whiplash, MRI ordered). Says _"el otro
-conductor pasó la luz roja."_ Caseflowy catches the contradiction, asks gently in
-Spanish, retrieves CA rear-end comparables and the 2-year filing window, values
-the case, and surfaces matched firms — all visible on the firm dashboard in real
-time.
-
 ## Roadmap
 
 **✅ Shipped — Jun 2026 · YC Conversational AI Hackathon.** Bilingual (EN/ES) video

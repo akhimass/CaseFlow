@@ -23,6 +23,10 @@ export function setConsentRecord(record: ConsentRecord) {
   sessionStorage.setItem(CASE_ID_KEY, record.case_id);
 }
 
+export function hasCallerLocation(): boolean {
+  return Boolean(getConsentRecord()?.caller_location?.trim());
+}
+
 export function getCaseIdFromSession(): string | null {
   if (typeof window === 'undefined') return null;
   return sessionStorage.getItem(CASE_ID_KEY);

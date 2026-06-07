@@ -200,13 +200,50 @@ def build_minimax_tts(*, state: VoiceSessionState) -> minimax.TTS:
     )
 
 
-def build_minimax_stt() -> inference.STT:
-    model = inference_model_name(os.getenv("MINIMAX_STT_MODEL", "speech-2.8-hd"))
-    return inference.STT(model=model, language=MULTILINGUAL_STT_LANGUAGE)
+def deepgram_configured() -> bool:
+    return bool(os.getenv("DEEPGRAM_API_KEY", "").strip())
+
+
+def caseflow_stt_model() -> str:
+    """STT model id for LiveKit Inference fallback when DEEPGRAM_API_KEY is unset."""
+    return os.getenv("CASEFLOW_STT_MODEL", "deepgram/nova-3")
+
+
+def build_caseflow_stt() -> stt.STT:
+    """Deepgram nova-3 direct API when keyed; else LiveKit Inference deepgram/nova-3.
+
+    MiniMax is TTS-only — transcription is always Deepgram; synthesis stays MiniMax.
+    """
+    api_key = os.getenv("DEEPGRAM_API_KEY", "").strip()
+    if api_key:
+        from livekit.plugins import deepgram
+
+        model = os.getenv("DEEPGRAM_MODEL", "nova-3")
+        language = os.getenv("DEEPGRAM_LANGUAGE", "multi")
+        detect = os.getenv("DEEPGRAM_DETECT_LANGUAGE", "true").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        return deepgram.STT(
+            model=model,
+            language=language,
+            detect_language=detect,
+            interim_results=True,
+            punctuate=True,
+            smart_format=True,
+            filler_words=True,
+            api_key=api_key,
+        )
+    logger.warning(
+        "DEEPGRAM_API_KEY not set — falling back to LiveKit Inference %s",
+        caseflow_stt_model(),
+    )
+    return inference.STT(model=caseflow_stt_model(), language=MULTILINGUAL_STT_LANGUAGE)
 
 
 class LoggingSTT(stt.STT):
-    """MiniMax STT through LiveKit Inference with transcript and language sync."""
+    """Deepgram nova-3 STT with bilingual logging; MiniMax handles TTS."""
 
     def __init__(
         self, *, state: VoiceSessionState, tts: minimax.TTS | None = None
@@ -216,15 +253,17 @@ class LoggingSTT(stt.STT):
         )
         self._state = state
         self._tts = tts
-        self._inner = build_minimax_stt()
+        self._inner = build_caseflow_stt()
 
     @property
     def model(self) -> str:
-        return inference_model_name(os.getenv("MINIMAX_STT_MODEL", "speech-2.8-hd"))
+        if deepgram_configured():
+            return os.getenv("DEEPGRAM_MODEL", "nova-3")
+        return caseflow_stt_model()
 
     @property
     def provider(self) -> str:
-        return "MiniMax"
+        return "Deepgram" if deepgram_configured() else "LiveKit-Inference"
 
     async def _recognize_impl(
         self,

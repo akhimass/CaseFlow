@@ -33,6 +33,20 @@ logger = logging.getLogger("unsiloed")
 UNSILOED_BASE = "https://prod.visionapi.unsiloed.ai"
 VALID_DOC_TYPES = {"police_report", "er_discharge", "insurance"}
 DOC_TYPE_ALIASES = {"insurance_letter": "insurance"}
+
+# Full-page paper documents need the WHOLE sheet — on a small camera window the
+# caller often can't fit it all, so the agent must ask to show the rest. Cards
+# (license, registration, insurance card) fit in a single frame.
+_FULL_PAGE_DOCS = {"police_report", "er_discharge", "insurance"}
+_CARD_DOCS = {"driver_license", "registration", "insurance_card"}
+
+
+def _form_factor(doc_type: str) -> str:
+    if doc_type in _CARD_DOCS:
+        return "card"
+    if doc_type in _FULL_PAGE_DOCS:
+        return "full_page"
+    return "unknown"
 LOW_CONFIDENCE_THRESHOLD = 0.75
 POLL_INTERVAL_S = 1.5
 MAX_POLLS = 20
@@ -269,7 +283,30 @@ _DOC_SIGNALS: dict[str, tuple[str, ...]] = {
         "policy number", "insurance", "claim number", "coverage", "declarations",
         "premium", "insured", "adjuster", "policyholder",
     ),
+    "registration": (
+        "registration", "vehicle registration", "registered owner", "license plate",
+        "plate no", "vin", "make/model", "reg exp",
+    ),
 }
+
+
+def _capture_complete(doc_type: str, full_text: str, fields: dict[str, Any]) -> bool:
+    """Heuristic: did we likely capture the WHOLE document?
+
+    Cards are small and fit in one frame. Full-page docs (police report, ER
+    discharge) on a small camera window are often shown only in part — flag that
+    so the agent asks the caller to show the rest of the page.
+    """
+    if _form_factor(doc_type) != "full_page":
+        return True
+    if len(full_text) < 250:
+        return False
+    ignore = {
+        "doc_type", "markdown", "raw_excerpt", "parsed_summary", "unexpected_document",
+        "requested_doc_type", "form_factor", "capture_complete", "capture_guidance",
+    }
+    substantive = [k for k in fields if k not in ignore]
+    return len(substantive) >= 2
 
 
 def _doc_scores(lowered: str) -> dict[str, int]:
@@ -342,7 +379,22 @@ def _extract_fields(
     else:
         fields["parsed_summary"] = full_text[:300] or "Insurance document received."
 
+    # Form factor + completeness so the agent knows full-page paper docs may need
+    # the caller to show the rest of the sheet on a small camera window.
+    fields["form_factor"] = _form_factor(effective)
+    complete = _capture_complete(effective, full_text, fields)
+    fields["capture_complete"] = complete
+    if not complete:
+        fields["capture_guidance"] = (
+            "Only part of this full-page document was captured — ask the caller to "
+            "show the rest of the page (e.g. the lower half), holding it steady and "
+            "filling the camera frame."
+        )
+
     base = _segment_confidence(body)
-    _skip = ("doc_type", "raw_excerpt", "markdown", "unexpected_document", "requested_doc_type")
+    _skip = (
+        "doc_type", "raw_excerpt", "markdown", "unexpected_document",
+        "requested_doc_type", "form_factor", "capture_complete", "capture_guidance",
+    )
     confidence = {k: base for k in fields if k not in _skip}
     return fields, confidence

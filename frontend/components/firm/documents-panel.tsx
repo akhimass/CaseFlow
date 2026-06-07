@@ -1,16 +1,16 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   CheckCircleIcon,
   FileTextIcon,
   ScrollIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react';
-import { type CaseRecord } from '@/hooks/useCaseflowEvents';
-import { Button } from '@/components/ui/button';
 import { Shimmer } from '@/components/ai-elements/shimmer';
+import { Button } from '@/components/ui/button';
+import { type CaseRecord } from '@/hooks/useCaseflowEvents';
 
 type GeneratedDoc = {
   doc_type?: string;
@@ -84,8 +84,7 @@ export function DocumentsPanel({ record }: { record: CaseRecord }) {
   const ordered = useMemo(
     () =>
       [...docs].sort(
-        (a, b) =>
-          DOC_ORDER.indexOf(String(a.doc_type)) - DOC_ORDER.indexOf(String(b.doc_type))
+        (a, b) => DOC_ORDER.indexOf(String(a.doc_type)) - DOC_ORDER.indexOf(String(b.doc_type))
       ),
     [docs]
   );
@@ -191,7 +190,7 @@ export function DocumentsPanel({ record }: { record: CaseRecord }) {
                   Close
                 </Button>
               </div>
-              <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap leading-relaxed">
+              <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed whitespace-pre-wrap">
                 {renderMarkdownPreview(preview.content)}
               </div>
             </motion.div>

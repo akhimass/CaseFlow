@@ -130,10 +130,7 @@ export function CaseflowDecisionCard({ record }: { record: CaseRecord }) {
             Synthesis unavailable — see the four streams above.
           </p>
         ) : (
-          <p
-            key={decision.seq ?? 0}
-            className="caseflow-decision-body-in text-sm leading-relaxed"
-          >
+          <p key={decision.seq ?? 0} className="caseflow-decision-body-in text-sm leading-relaxed">
             {renderSynthesis(decision.synthesis ?? '')}
           </p>
         )}

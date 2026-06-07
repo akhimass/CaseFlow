@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { type CaseRecord } from '@/hooks/useCaseflowEvents';
 import { Button } from '@/components/ui/button';
+import { type CaseRecord } from '@/hooks/useCaseflowEvents';
 
 type PrivacyStats = {
   redaction_count?: number;

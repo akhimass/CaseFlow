@@ -1,6 +1,7 @@
 export type AuditRecord = {
   audit_id?: string;
   event_type: string;
+  actor?: string;
   model_id?: string;
   resolved_model?: string;
   provider?: string;

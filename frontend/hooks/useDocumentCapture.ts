@@ -2,8 +2,8 @@
 
 import { useEffect } from 'react';
 import { type LocalParticipant, RoomEvent, Track } from 'livekit-client';
-import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { toast } from 'sonner';
+import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();

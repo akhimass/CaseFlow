@@ -66,7 +66,8 @@ export default function FirmLoginPage() {
         <h1 className="mt-2 text-2xl font-semibold">Sign in to your firm</h1>
         <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
           Demo sign-in for participating San Francisco law firms. After you sign in, open this
-          dashboard in another tab, then run a client intake — matched cases appear here in real time.
+          dashboard in another tab, then run a client intake — matched cases appear here in real
+          time.
         </p>
 
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>
@@ -100,7 +101,9 @@ export default function FirmLoginPage() {
               autoComplete="current-password"
             />
             {selected?.demo_email ? (
-              <p className="text-muted-foreground mt-1 text-xs">Demo account: {selected.demo_email}</p>
+              <p className="text-muted-foreground mt-1 text-xs">
+                Demo account: {selected.demo_email}
+              </p>
             ) : null}
           </div>
 

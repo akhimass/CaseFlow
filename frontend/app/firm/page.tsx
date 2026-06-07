@@ -3,17 +3,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type FirmSession, caseVisibleToFirm } from '@/lib/firm-session';
 import { AwsArtifactsPanel } from '@/components/firm/aws-artifacts-panel';
 import { CaseflowDecisionCard } from '@/components/firm/caseflow-decision-card';
-import { DocumentsPanel } from '@/components/firm/documents-panel';
 import { ConsistencyAuditPanel } from '@/components/firm/consistency-audit-panel';
+import { DocumentsPanel } from '@/components/firm/documents-panel';
 import { GatewayMetricsPanel } from '@/components/firm/gateway-metrics-panel';
 import { LiveTranscriptPanel } from '@/components/firm/live-transcript-panel';
 import { MossIntelligencePanel } from '@/components/firm/moss-intelligence-panel';
 import { PrivacyPanel } from '@/components/firm/privacy-panel';
 import { Button } from '@/components/ui/button';
 import { type CaseRecord, useCaseflowEvents } from '@/hooks/useCaseflowEvents';
+import { type FirmSession, caseVisibleToFirm } from '@/lib/firm-session';
 
 function ScoreGauge({ score }: { score: number }) {
   const color = score >= 70 ? 'text-emerald-600' : score >= 40 ? 'text-amber-600' : 'text-red-600';
@@ -70,14 +70,22 @@ function CaseDetail({
             Case fields
           </div>
           <dl className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
-            {['caller_id', 'caller_location', 'location', 'state', 'accident_type', 'fault_claim', 'injuries', 'language'].map(
-              (key) =>
-                record[key] ? (
-                  <div key={key}>
-                    <dt className="text-muted-foreground">{key}</dt>
-                    <dd className="font-medium">{String(record[key])}</dd>
-                  </div>
-                ) : null
+            {[
+              'caller_id',
+              'caller_location',
+              'location',
+              'state',
+              'accident_type',
+              'fault_claim',
+              'injuries',
+              'language',
+            ].map((key) =>
+              record[key] ? (
+                <div key={key}>
+                  <dt className="text-muted-foreground">{key}</dt>
+                  <dd className="font-medium">{String(record[key])}</dd>
+                </div>
+              ) : null
             )}
           </dl>
         </div>

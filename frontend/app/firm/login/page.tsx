@@ -46,7 +46,7 @@ export default function FirmLoginPage() {
         setError(data.error ?? 'Sign in failed');
         return;
       }
-      router.push('/firm');
+      router.replace('/firm');
       router.refresh();
     } catch {
       setError('Sign in failed');

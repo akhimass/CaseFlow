@@ -17,7 +17,9 @@ export function LandingPage() {
               Spanish + English · Free video case review
             </div>
             <h1 className="text-4xl font-semibold tracking-tight md:text-5xl lg:text-6xl">
-              Start your case today.
+              Start your
+              <br />
+              case today.
             </h1>
             <p className="text-muted-foreground mt-4 text-lg md:text-xl">{CONSUMER_TAGLINE}</p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-3 lg:justify-start">

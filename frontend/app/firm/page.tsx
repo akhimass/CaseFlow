@@ -110,11 +110,11 @@ export default function FirmPage() {
   const [view, setView] = useState<FirmDashboardView>('home');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
-  const [autoBrief, setAutoBrief] = useState(false);
-
-  useEffect(() => {
-    setAutoBrief(localStorage.getItem('caseflow_auto_brief') === 'on');
-  }, []);
+  const [autoBrief, setAutoBrief] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      localStorage.getItem('caseflow_auto_brief') === 'on'
+  );
 
   useEffect(() => {
     fetch('/api/firm/session')
@@ -127,6 +127,17 @@ export default function FirmPage() {
     if (session === null) router.replace('/firm/login');
   }, [session, router]);
 
+  // Every firm sign-in lands on the home dashboard (Counsel), never a case dossier.
+  const seenCaseIds = useRef<Set<string>>(new Set());
+  const snapshotSeeded = useRef(false);
+  useEffect(() => {
+    if (!session?.firm_id) return;
+    setView('home');
+    setSelectedId(null);
+    snapshotSeeded.current = false;
+    seenCaseIds.current = new Set();
+  }, [session?.firm_id]);
+
   const firmCases = useMemo(() => {
     if (!session) return [];
     return cases.filter((record) => caseVisibleToFirm(record, session.firm_id));
@@ -137,19 +148,26 @@ export default function FirmPage() {
     [firmCases, selectedId]
   );
 
-  const seenCaseIds = useRef<Set<string> | null>(null);
+  // Seed once after the SSE snapshot lands so demo/historical leads are never
+  // treated as "new" (empty-then-populate and late autoBrief hydration both
+  // used to auto-redirect to demo-sofia-reyes on sign-in).
   useEffect(() => {
+    if (!session || !connected) return;
+
     const ids = firmCases.map((c) => String(c.case_id));
-    if (seenCaseIds.current === null) {
+    if (!snapshotSeeded.current) {
+      if (ids.length === 0) return;
       seenCaseIds.current = new Set(ids);
+      snapshotSeeded.current = true;
       return;
     }
-    const fresh = ids.filter((id) => !seenCaseIds.current!.has(id));
-    fresh.forEach((id) => seenCaseIds.current!.add(id));
+
+    const fresh = ids.filter((id) => !seenCaseIds.current.has(id));
+    fresh.forEach((id) => seenCaseIds.current.add(id));
     if (autoBrief && fresh.length > 0) {
       router.push(`/firm/brief/${fresh[0]}`);
     }
-  }, [firmCases, autoBrief, router]);
+  }, [firmCases, autoBrief, connected, session, router]);
 
   function openCase(caseId: string) {
     setSelectedId(caseId);

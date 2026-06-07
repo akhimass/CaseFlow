@@ -4,22 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ConnectionState } from 'livekit-client';
 import { AnimatePresence, motion } from 'motion/react';
-import {
-  useConnectionState,
-  useLocalParticipant,
-  useRoomContext,
-  useVoiceAssistant,
-} from '@livekit/components-react';
+import { useConnectionState, useVoiceAssistant } from '@livekit/components-react';
 import {
   ArrowClockwiseIcon,
   ArrowLeftIcon,
-  MicrophoneIcon,
-  MicrophoneSlashIcon,
   PauseIcon,
-  PhoneDisconnectIcon,
   PlayIcon,
 } from '@phosphor-icons/react/dist/ssr';
 import { AudioVisualizer } from '@/components/agents-ui/blocks/agent-session-view-01/components/audio-visualizer';
+import { FirmCounselControls } from '@/components/firm/dashboard/firm-counsel-controls';
 import { Button } from '@/components/ui/button';
 import { type CaseRecord } from '@/hooks/useCaseflowEvents';
 import { useFirmBriefing } from '@/hooks/useFirmBriefing';
@@ -204,22 +197,10 @@ export function BriefingRoom({
   onTogglePause: () => void;
 }) {
   const router = useRouter();
-  const room = useRoomContext();
   const connectionState = useConnectionState();
   const connected = connectionState === ConnectionState.Connected;
   const { state: agentState } = useVoiceAssistant();
-  const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
   const { briefing, replay } = useFirmBriefing(caseId);
-
-  // Lawyer joins muted so the agent can narrate without picking up room noise;
-  // the "Ask a question" button enables the mic on demand. Runs once on connect.
-  const micInitialized = useRef(false);
-  useEffect(() => {
-    if (localParticipant && !micInitialized.current) {
-      micInitialized.current = true;
-      void localParticipant.setMicrophoneEnabled(false);
-    }
-  }, [localParticipant]);
 
   // Self-heal a stuck briefing. The agent auto-narrates the moment it connects,
   // but if those reliable data packets are sent before this client attaches its
@@ -251,10 +232,9 @@ export function BriefingRoom({
   }, [briefing.caption, briefing.status]);
 
   const leave = useCallback(() => {
-    recoveryRequested.current = true; // suppress any pending recovery on the way out
-    void room?.disconnect();
+    recoveryRequested.current = true;
     router.push('/firm');
-  }, [room, router]);
+  }, [router]);
 
   const handleReplay = useCallback(() => {
     recoveryRequested.current = true;
@@ -390,38 +370,24 @@ export function BriefingRoom({
         })}
       </main>
 
-      {/* Control bar */}
+      {/* Control bar — mic + end match client intake; pause/replay for briefing */}
       <div className="border-border bg-background/90 pointer-events-auto fixed inset-x-0 bottom-0 z-30 border-t pb-[env(safe-area-inset-bottom)] backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-center gap-2 px-6 py-3">
-          <Button type="button" variant="outline" size="sm" onClick={onTogglePause}>
-            {paused ? <PlayIcon weight="fill" /> : <PauseIcon weight="fill" />}
-            {paused ? 'Resume' : 'Pause'}
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={handleReplay}>
-            <ArrowClockwiseIcon weight="bold" /> Replay briefing
-          </Button>
-          <Button
-            type="button"
-            variant={isMicrophoneEnabled ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => localParticipant?.setMicrophoneEnabled(!isMicrophoneEnabled)}
-          >
-            {isMicrophoneEnabled ? (
-              <MicrophoneIcon weight="fill" />
-            ) : (
-              <MicrophoneSlashIcon weight="bold" />
-            )}
-            {isMicrophoneEnabled ? 'Listening' : 'Ask a question'}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-red-600 hover:text-red-700"
-            onClick={leave}
-          >
-            <PhoneDisconnectIcon weight="bold" /> End
-          </Button>
+        <div className="mx-auto max-w-5xl px-6 py-3">
+          <FirmCounselControls
+            leaveLabel="END BRIEFING"
+            onLeave={leave}
+            extraControls={
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={onTogglePause}>
+                  {paused ? <PlayIcon weight="fill" /> : <PauseIcon weight="fill" />}
+                  {paused ? 'Resume' : 'Pause'}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={handleReplay}>
+                  <ArrowClockwiseIcon weight="bold" /> Replay briefing
+                </Button>
+              </>
+            }
+          />
         </div>
       </div>
     </div>

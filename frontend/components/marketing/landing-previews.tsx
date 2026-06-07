@@ -1,8 +1,8 @@
 'use client';
 
 import { Bot, FileText } from 'lucide-react';
-import { LogoMark } from '@/components/marketing/logo';
-import { MOCK_ROWS } from '@/lib/marketing';
+import { FirmSidebarWordmark } from '@/components/marketing/logo';
+import { MOCK_ROWS, PREVIEW_FIRM } from '@/lib/marketing';
 import { cn } from '@/lib/shadcn/utils';
 
 const TABLE_COLS =
@@ -135,11 +135,18 @@ export function FirmDashboardPreview({ className }: { className?: string }) {
         Firm dashboard
       </p>
       <WindowChrome>
-        <div className="grid md:grid-cols-[120px_minmax(0,1fr)]">
+        <div className="grid md:grid-cols-[9.5rem_minmax(0,1fr)]">
           <aside className="border-border bg-muted/30 hidden border-r p-3 md:block">
-            <div className="mb-4 flex items-center gap-2 text-sm font-semibold">
-              <LogoMark className="size-7" />
-              <span className="lowercase">caseflowy</span>
+            <div className="mb-3 min-w-0">
+              <FirmSidebarWordmark />
+              <div className="bg-muted/60 mt-3 rounded-lg px-2 py-1.5">
+                <p className="text-muted-foreground text-[8px] font-semibold tracking-wide uppercase">
+                  Your firm
+                </p>
+                <p className="mt-0.5 truncate text-[10px] leading-tight font-semibold">
+                  {PREVIEW_FIRM.name}
+                </p>
+              </div>
             </div>
             {SIDEBAR_ITEMS.map((item) => (
               <div

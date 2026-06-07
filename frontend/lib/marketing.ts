@@ -62,6 +62,12 @@ export const FEATURE_HIGHLIGHTS = [
   },
 ] as const;
 
+/** Demo firm shown in the landing-page firm dashboard preview. */
+export const PREVIEW_FIRM = {
+  name: 'Bay Counsel Injury Group',
+  city: 'San Francisco, CA',
+} as const;
+
 export const MOCK_ROWS = [
   {
     caller: 'Caller · (570) 332-2862',

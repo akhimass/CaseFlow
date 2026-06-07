@@ -1,21 +1,20 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import { TokenSource } from 'livekit-client';
 import {
-  useLocalParticipant,
   useSession,
   useSessionContext,
   useSessionMessages,
   useVoiceAssistant,
 } from '@livekit/components-react';
-import { MicrophoneIcon, MicrophoneSlashIcon, WarningIcon } from '@phosphor-icons/react/dist/ssr';
+import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
 import { APP_CONFIG_DEFAULTS } from '@/app-config';
 import { AgentChatTranscript } from '@/components/agents-ui/agent-chat-transcript';
 import { AgentSessionProvider } from '@/components/agents-ui/agent-session-provider';
 import { AudioVisualizer } from '@/components/agents-ui/blocks/agent-session-view-01/components/audio-visualizer';
 import { StartAudioButton } from '@/components/agents-ui/start-audio-button';
-import { Button } from '@/components/ui/button';
+import { FirmCounselControls } from '@/components/firm/dashboard/firm-counsel-controls';
 import { Toaster } from '@/components/ui/sonner';
 import { useFirmAgentAutoConnect, useFirmAgentErrors } from '@/hooks/useFirmAgentSession';
 import { type FirmSession } from '@/lib/firm-session';
@@ -38,7 +37,7 @@ function FirmCounselTranscript() {
       <div className="border-border shrink-0 border-b px-4 py-3">
         <h2 className="text-sm font-semibold tracking-tight">Conversation</h2>
         <p className="text-muted-foreground text-xs">
-          Counsel speaks aloud — transcript updates here live
+          Turn your mic on to talk — transcript updates here live
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
@@ -65,8 +64,8 @@ function FirmHomeAgentPanel({ firmName }: { firmName: string }) {
         Your marketplace command center
       </h2>
       <p className="text-muted-foreground mt-2 max-w-md text-sm leading-relaxed">
-        Matched leads are listed in the left sidebar. Pick one for the full dossier, open Cases for
-        the table view, or ask Counsel anything about your pipeline.
+        Matched leads are in the left sidebar. Use the mic below to have a conversation with Counsel
+        — same controls as client intake.
       </p>
 
       <div className="relative mt-6 flex h-36 w-full items-center justify-center">
@@ -83,52 +82,24 @@ function FirmHomeAgentPanel({ firmName }: { firmName: string }) {
           ? 'Connecting to Caseflowy Counsel…'
           : agentState === 'speaking'
             ? 'Counsel is speaking — follow along in the transcript.'
-            : `Welcome back${firmName ? `, ${firmName}` : ''}. Your agent is ready when you are.`}
+            : agentState === 'listening'
+              ? 'Listening — speak anytime.'
+              : `Welcome back${firmName ? `, ${firmName}` : ''}. Counsel is ready.`}
       </p>
-
-      <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-        <HomeMicToggle />
-        <span className="text-muted-foreground text-xs">
-          {agentState === 'listening' ? 'Listening' : 'Tap mic to ask a question'}
-        </span>
-      </div>
     </div>
-  );
-}
-
-function HomeMicToggle() {
-  const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
-  const micInitialized = useRef(false);
-
-  useEffect(() => {
-    if (localParticipant && !micInitialized.current) {
-      micInitialized.current = true;
-      void localParticipant.setMicrophoneEnabled(false);
-    }
-  }, [localParticipant]);
-
-  return (
-    <Button
-      type="button"
-      variant={isMicrophoneEnabled ? 'default' : 'outline'}
-      size="sm"
-      onClick={() => void localParticipant?.setMicrophoneEnabled(!isMicrophoneEnabled)}
-    >
-      {isMicrophoneEnabled ? (
-        <MicrophoneIcon weight="bold" />
-      ) : (
-        <MicrophoneSlashIcon weight="bold" />
-      )}
-      {isMicrophoneEnabled ? 'Mic on' : 'Ask a question'}
-    </Button>
   );
 }
 
 function FirmHomeContent({ session }: { session: FirmSession }) {
   return (
-    <div className="grid min-h-[min(72vh,680px)] gap-4 lg:grid-cols-2">
-      <FirmHomeAgentPanel firmName={session.firm_name} />
-      <FirmCounselTranscript />
+    <div className="flex min-h-[min(72vh,680px)] flex-col gap-4">
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
+        <FirmHomeAgentPanel firmName={session.firm_name} />
+        <FirmCounselTranscript />
+      </div>
+      <div className="border-border shrink-0 border-t pt-4">
+        <FirmCounselControls className="mx-auto max-w-3xl" />
+      </div>
     </div>
   );
 }

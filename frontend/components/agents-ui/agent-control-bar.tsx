@@ -213,6 +213,8 @@ export interface AgentControlBarProps extends UseInputControlsProps {
   onIsChatOpenChange?: (open: boolean) => void;
   /** The callback for when a device error occurs. */
   onDeviceError?: (error: { source: Track.Source; error: Error }) => void;
+  /** Label on the disconnect button (client intake uses END CALL). */
+  leaveLabel?: string;
 }
 
 /**
@@ -248,6 +250,7 @@ export function AgentControlBar({
   onDisconnect,
   onDeviceError,
   onIsChatOpenChange,
+  leaveLabel,
   className,
   ...props
 }: AgentControlBarProps & ComponentProps<'div'>) {
@@ -396,7 +399,7 @@ export function AgentControlBar({
                 'bg-destructive/10 dark:bg-destructive/10 text-destructive hover:bg-destructive/20 dark:hover:bg-destructive/20 focus:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/4 rounded-full font-mono text-xs font-bold tracking-wider'
             )}
           >
-            <span className="hidden md:inline">END CALL</span>
+            <span className="hidden md:inline">{leaveLabel ?? 'END CALL'}</span>
             <span className="inline md:hidden">END</span>
           </AgentDisconnectButton>
         )}

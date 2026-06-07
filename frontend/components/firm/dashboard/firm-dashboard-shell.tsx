@@ -51,6 +51,15 @@ export function FirmDashboardShell({
           <Link href="/firm" onClick={() => onViewChange('home')} className="block min-w-0">
             <FirmSidebarWordmark />
           </Link>
+          <div className="bg-muted/50 mt-3 rounded-lg px-2.5 py-2">
+            <p className="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">
+              Your firm
+            </p>
+            <p className="mt-0.5 truncate text-xs font-semibold">{session.firm_name}</p>
+            {session.city ? (
+              <p className="text-muted-foreground mt-0.5 truncate text-[10px]">{session.city}</p>
+            ) : null}
+          </div>
         </div>
         <nav className="flex flex-col gap-0.5 p-3">
           {NAV.map((item) => {

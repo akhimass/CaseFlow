@@ -28,6 +28,8 @@ const HIDDEN_KEYS = new Set([
   '_meta',
   'thumbnail',
   'parsed_summary',
+  'icd10',
+  'guardrail',
 ]);
 
 const VERIFY_THRESHOLD = 0.75;
@@ -38,6 +40,47 @@ type DocMeta = {
   latency_ms?: number;
   source?: string;
 };
+
+type Icd10Code = {
+  code?: string;
+  description?: string;
+  severity?: string;
+};
+
+type Icd10Result = {
+  codes?: Icd10Code[];
+  severity?: string;
+  source?: string;
+};
+
+function Icd10Row({ icd10 }: { icd10: Icd10Result }) {
+  const codes = icd10.codes ?? [];
+  if (codes.length === 0) return null;
+  const sourceLabel = icd10.source === 'comprehend_medical' ? 'AWS Comprehend Medical' : 'coded';
+  return (
+    <div className="border-border/60 mt-2 border-t pt-2">
+      <div className="text-muted-foreground mb-1 flex items-center justify-between text-[10px] font-semibold tracking-wide uppercase">
+        <span>ICD-10-CM</span>
+        <span className="font-normal normal-case">
+          {sourceLabel}
+          {icd10.severity ? ` · severity ${icd10.severity}` : ''}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {codes.map((c) => (
+          <span
+            key={c.code}
+            title={c.description}
+            className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300"
+          >
+            {c.code}
+            {c.description ? ` · ${c.description}` : ''}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 type ParsingStatus = {
   doc_type?: string;
@@ -202,6 +245,7 @@ export function UnsiloedParsedPanel({ record }: { record: CaseRecord }) {
                   </div>
                 )}
                 <FieldGrid fields={fields} />
+                {fields.icd10 ? <Icd10Row icd10={fields.icd10 as Icd10Result} /> : null}
               </div>
             );
           })}

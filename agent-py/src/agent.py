@@ -35,6 +35,7 @@ from case_completeness import case_completeness, completeness_crossed
 from case_persistence import CasePersistence
 from caseflow_userdata import CaseflowUserdata
 from citations import filter_citation_stream
+from comprehend_medical import extract_icd10_codes
 from consistency import (
     audit_utterance,
     bedrock_second_opinion,
@@ -720,9 +721,47 @@ class Assistant(Agent):
         self._spawn(self._screen_document_guardrails(actual_type, parsed))
         if actual_type in {"police_report", "er_discharge"}:
             self._spawn(self._run_retrieval_fanout())
+        # ER discharge → ICD-10-CM coding via AWS Comprehend Medical (curated
+        # fallback when unsubscribed); refines severity for the dashboard.
+        if actual_type == "er_discharge":
+            self._spawn(self._code_er_discharge(actual_type, parsed))
         # Gap 5 + Enh D: proactively run consistency now that a doc is parsed.
         self._spawn(self._post_parse_consistency(actual_type))
         return parsed
+
+    async def _code_er_discharge(self, doc_type: str, parsed: dict) -> None:
+        """Add ICD-10-CM codes to an ER discharge (AWS Comprehend Medical).
+
+        Additive enrichment: attaches codes + a coded severity to the document
+        and case for the firm dashboard, and fills ``severity`` only when it was
+        not already set, so the existing valuation/retrieval logic is untouched.
+        """
+        text = " ".join(
+            str(parsed.get(k) or "")
+            for k in ("primary_diagnosis", "discharge_instructions", "imaging_ordered")
+        ).strip() or str(parsed.get("markdown") or parsed.get("raw_excerpt") or "")
+        if not text:
+            return
+        result = await extract_icd10_codes(text)
+        if not result.get("codes"):
+            return
+        logger.info(
+            "CASEFLOW_ICD10 doc_type=%s source=%s codes=%s severity=%s",
+            doc_type,
+            result.get("source"),
+            ",".join(c.get("code", "") for c in result["codes"]),
+            result.get("severity"),
+        )
+        docs = self._case_data.get("documents")
+        if isinstance(docs, dict) and isinstance(docs.get(doc_type), dict):
+            docs[doc_type]["icd10"] = result
+        update: dict = {"icd10_coding": {"doc_type": doc_type, **result}}
+        if isinstance(docs, dict):
+            update["documents"] = docs
+        coded_severity = result.get("severity")
+        if coded_severity and not self._case_data.get("severity"):
+            update["severity"] = coded_severity
+        await self._update_case("icd10_coded", update)
 
     async def _screen_document_guardrails(self, doc_type: str, parsed: dict) -> None:
         """Route parsed document text through TrueFoundry input guardrails and

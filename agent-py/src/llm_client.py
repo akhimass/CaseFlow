@@ -555,7 +555,9 @@ class TrueFoundryLLM(llm.LLM):
     ) -> None:
         super().__init__()
         self._case_id = case_id
-        self._primary_temperature = 0.4
+        # Slightly warmer than 0.4 so intake feels human and varied (not robotic),
+        # while staying controlled enough to avoid rambling. Env-tunable.
+        self._primary_temperature = float(os.getenv("DIALOGUE_TEMPERATURE", "0.5"))
         self._extract_temperature = 0.0
         self._score_temperature = 0.0
         self._max_tokens = _get_int_env("LLM_MAX_TOKENS", 400)

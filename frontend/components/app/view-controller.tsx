@@ -1,14 +1,18 @@
 'use client';
 
+import { useState } from 'react';
 import { useTheme } from 'next-themes';
 import { AnimatePresence, motion } from 'motion/react';
 import { useSessionContext } from '@livekit/components-react';
 import type { AppConfig } from '@/app-config';
 import { AgentSessionView_01 } from '@/components/agents-ui/blocks/agent-session-view-01';
+import { LocationPromptPanel } from '@/components/app/location-prompt-panel';
 import { WelcomeView } from '@/components/app/welcome-view';
+import { hasCallerLocation } from '@/lib/privacy-token';
 
 const MotionWelcomeView = motion.create(WelcomeView);
 const MotionSessionView = motion.create(AgentSessionView_01);
+const MotionLocationPanel = motion.create(LocationPromptPanel);
 
 const VIEW_MOTION_PROPS = {
   variants: {
@@ -35,11 +39,18 @@ interface ViewControllerProps {
 export function ViewController({ appConfig }: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
   const { resolvedTheme } = useTheme();
+  const [locationReady, setLocationReady] = useState(() => hasCallerLocation());
 
   return (
     <AnimatePresence mode="wait">
-      {/* Welcome view */}
-      {!isConnected && (
+      {!locationReady && !isConnected && (
+        <MotionLocationPanel
+          key="location"
+          {...VIEW_MOTION_PROPS}
+          onConfirmed={() => setLocationReady(true)}
+        />
+      )}
+      {locationReady && !isConnected && (
         <MotionWelcomeView
           key="welcome"
           {...VIEW_MOTION_PROPS}
@@ -47,7 +58,6 @@ export function ViewController({ appConfig }: ViewControllerProps) {
           onStartCall={start}
         />
       )}
-      {/* Session view */}
       {isConnected && (
         <MotionSessionView
           key="session-view"

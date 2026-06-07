@@ -37,6 +37,9 @@ export function MarketingLayout({ children }: { children: ReactNode }) {
             <Link href="/intake/consent" className="hover:text-foreground">
               Your case
             </Link>
+            <Link href="/privacy" className="hover:text-foreground">
+              Privacy
+            </Link>
             <Link href="/firm/login" className="hover:text-foreground">
               Dashboard
             </Link>

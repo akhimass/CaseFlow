@@ -290,12 +290,39 @@ class OpenAIChatLLM(llm.LLM):
             await self._client.close()
 
 
+def _sanitize_for_bedrock(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Flatten provider messages to plain {role, content:str} Bedrock accepts.
+
+    ``to_provider_format('openai')`` can emit list/multimodal content (video
+    frames, image parts) and tool-call/tool-result messages that the Bedrock
+    OpenAI-compat shim can't parse; we keep only text and guarantee a trailing
+    user turn so Bedrock always has something to answer.
+    """
+    out: list[dict[str, Any]] = []
+    for msg in raw:
+        role = msg.get("role")
+        if role not in ("system", "user", "assistant"):
+            continue  # drop tool / function messages
+        content = msg.get("content")
+        if isinstance(content, list):
+            content = " ".join(
+                part.get("text", "")
+                for part in content
+                if isinstance(part, dict) and part.get("type") == "text"
+            ).strip()
+        if isinstance(content, str) and content.strip():
+            out.append({"role": role, "content": content})
+    if not out or out[-1]["role"] != "user":
+        out.append({"role": "user", "content": "Please continue."})
+    return out
+
+
 class _BedrockLLMStream(LLMStream):
     """One-shot Bedrock completion exposed as a LiveKit LLM stream.
 
-    A last-resort dialogue fallback for when the OpenAI org is rate-limited. It is
-    non-streaming and does not invoke tools — the goal is simply to keep Aria
-    talking; the OpenAI primaries handle tool-calling when they are available.
+    A reliable, uncapped dialogue provider (and last-resort fallback). It is
+    non-streaming and does not invoke tools — the goal is to keep Aria talking;
+    the OpenAI primaries handle tool-calling when they are available.
     """
 
     def __init__(
@@ -314,10 +341,15 @@ class _BedrockLLMStream(LLMStream):
         self._max_tokens = max_tokens
 
     async def _run(self) -> None:
-        messages, _ = self._cc.to_provider_format("openai")
-        data = await bedrock_chat_openai_compat(
-            messages, temperature=self._temperature, max_tokens=self._max_tokens
-        )
+        raw, _ = self._cc.to_provider_format("openai")
+        messages = _sanitize_for_bedrock(raw)
+        try:
+            data = await bedrock_chat_openai_compat(
+                messages, temperature=self._temperature, max_tokens=self._max_tokens
+            )
+        except Exception:
+            logger.exception("BedrockLLM stream failed (messages=%d)", len(messages))
+            raise
         content = (data or {}).get("content", "") if isinstance(data, dict) else str(data)
         self._event_ch.send_nowait(
             llm.ChatChunk(
@@ -428,23 +460,37 @@ class TrueFoundryLLM(llm.LLM):
                 base_url="https://api.openai.com/v1",
             )
 
-        # Dialogue failover: OpenAI direct → TrueFoundry gateway → LiveKit Inference
-        # → Bedrock last resort. MiniMax stays on the voice layer only.
+        # Provider ordering. The OpenAI org behind both the direct key and the
+        # TrueFoundry gateway is on the free tier (50 requests/day on gpt-4.1-mini),
+        # so when it's exhausted every OpenAI hop 429s and the agent only speaks
+        # after several failed failovers. DIALOGUE_PRIMARY=bedrock (the default)
+        # puts the reliable, uncapped Bedrock provider FIRST so Aria responds
+        # instantly; set DIALOGUE_PRIMARY=openai once the OpenAI org has a payment
+        # method (which lifts the daily cap) to prefer OpenAI/TrueFoundry again.
+        bedrock_llm: llm.LLM | None = (
+            BedrockLLM(temperature=self._primary_temperature, max_tokens=self._max_tokens)
+            if bedrock_configured()
+            else None
+        )
+        bedrock_first = (
+            os.getenv("DIALOGUE_PRIMARY", "bedrock").strip().lower() == "bedrock"
+            and bedrock_llm is not None
+        )
+        livekit_llm = _livekit_inference_llm()
+
         chain: list[llm.LLM] = []
+        if bedrock_first:
+            chain.append(bedrock_llm)  # type: ignore[arg-type]
         if direct_llm is not None:
             chain.append(direct_llm)
         chain.append(self._primary_llm)
         if self._fallback_llm is not self._primary_llm:
             chain.append(self._fallback_llm)
-        livekit_llm = _livekit_inference_llm()
         if livekit_llm is not None:
             chain.append(livekit_llm)
-        if bedrock_configured():
-            chain.append(
-                BedrockLLM(
-                    temperature=self._primary_temperature, max_tokens=self._max_tokens
-                )
-            )
+        if bedrock_llm is not None and not bedrock_first:
+            chain.append(bedrock_llm)
+
         self._router = CaseflowFallbackAdapter(
             chain,
             case_id=case_id,

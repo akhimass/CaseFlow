@@ -28,6 +28,7 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from moss import DocumentInfo, MossClient, QueryOptions
 
 from adaptive_retrieval import AdaptiveRetriever
+from caseflow_userdata import CaseflowUserdata
 from aws_s3 import s3_configured, save_document_frame
 from bedrock_llm import bedrock_configured
 from case_broadcast import broadcast
@@ -248,17 +249,33 @@ class Assistant(Agent):
         self,
         *,
         room=None,
+        userdata: CaseflowUserdata | None = None,
         user_id: str = DEFAULT_USER_ID,
         voice_state: VoiceSessionState | None = None,
         case_id: str | None = None,
         consent_given_at: str | None = None,
         caller_location: str | None = None,
     ) -> None:
+        self._voice_state = voice_state or VoiceSessionState()
+        if userdata is None:
+            resolved_case_id = case_id or str(uuid.uuid4())
+            userdata = CaseflowUserdata(
+                user_id=user_id,
+                case_id=resolved_case_id,
+                consent_given_at=consent_given_at,
+                language=self._voice_state.caller_language,
+                case_data={
+                    "caller_id": user_id,
+                    "language": self._voice_state.caller_language,
+                },
+            )
+            userdata.seed_location(caller_location or "")
+        self._userdata = userdata
         self._redaction_session = RedactionSession()
         bind_redaction_session(self._redaction_session)
         self._room = room
-        self._user_id = user_id
-        self._case_id = case_id or str(uuid.uuid4())
+        self._user_id = userdata.user_id
+        self._case_id = userdata.case_id
         inner_llm = build_dialogue_llm(case_id=self._case_id)
         self._redacting_llm = RedactingLLM(
             inner=inner_llm,
@@ -268,17 +285,10 @@ class Assistant(Agent):
             llm=self._redacting_llm,
             instructions=ARIA_INSTRUCTIONS,
         )
-        self._consent_given_at = consent_given_at
-        self._caller_location = (caller_location or "").strip()
-        self._voice_state = voice_state or VoiceSessionState()
-        self._language = self._voice_state.caller_language
-        self._case_data: dict = {
-            "caller_id": user_id,
-            "language": self._voice_state.caller_language,
-        }
-        if self._caller_location:
-            self._case_data["location"] = self._caller_location
-            self._case_data["caller_location"] = self._caller_location
+        self._consent_given_at = userdata.consent_given_at
+        self._caller_location = userdata.caller_location
+        self._language = userdata.language
+        self._case_data = userdata.case_data
         self._moss = MossClient(
             os.getenv("MOSS_PROJECT_ID"), os.getenv("MOSS_PROJECT_KEY")
         )
@@ -293,9 +303,9 @@ class Assistant(Agent):
             self._retriever, resynthesize=self._resynthesize
         )
         self._indexes_loaded = False
-        self._turn = 0
-        self._last_user_utterance = ""
-        self._last_agent_utterance = ""
+        self._turn = userdata.turn
+        self._last_user_utterance = userdata.last_user_utterance
+        self._last_agent_utterance = userdata.last_agent_utterance
         self._transcript_lines: list[dict] = []
         self._auto_saved_fields: set[str] = set()
         self._doc_capture = DocumentCaptureCoordinator()
@@ -320,6 +330,15 @@ class Assistant(Agent):
 
     def bind_tts(self, tts_engine) -> None:
         self._minimax_tts = tts_engine
+
+    def _sync_userdata(self) -> None:
+        """Mirror hot session fields into AgentSession userdata for handoffs/tools."""
+        ud = self._userdata
+        ud.turn = self._turn
+        ud.language = self._language
+        ud.last_user_utterance = self._last_user_utterance
+        ud.last_agent_utterance = self._last_agent_utterance
+        ud.caller_location = self._caller_location
 
     async def tts_node(self, text, model_settings):
         """Strip [cite:<id>] markers before synthesis and emit cited_source events.
@@ -1103,8 +1122,11 @@ class Assistant(Agent):
         Args:
             caller_location: City or county for local matching.
         """
-        location = (caller_location or self._caller_location or "").strip()
-        result = match_firm(self._case_data, location)
+        ud = context.userdata
+        if not isinstance(ud, CaseflowUserdata):
+            ud = self._userdata
+        location = (caller_location or ud.caller_location or "").strip()
+        result = match_firm(ud.case_data, location)
         self._voice_state.message_type = "reassuring"
         await self._persistence.on_firms_matched(result)
         await self._update_case("firms_matched", result)
@@ -1199,21 +1221,31 @@ async def my_agent(ctx: JobContext):
     voice_state = VoiceSessionState(metrics=MetricsTracker())
     minimax_tts, _minimax_inner = build_caseflow_voice(state=voice_state)
 
-    session = AgentSession(
+    session_userdata = CaseflowUserdata(
+        user_id=user_id,
+        case_id=case_id or str(uuid.uuid4()),
+        consent_given_at=consent_given_at,
+        language=voice_state.caller_language,
+        case_data={
+            "caller_id": user_id,
+            "language": voice_state.caller_language,
+        },
+    )
+    session_userdata.seed_location(caller_location or "")
+
+    session = AgentSession[CaseflowUserdata](
         stt=LoggingSTT(state=voice_state, tts=minimax_tts),
         tts=minimax_tts,
         turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
         preemptive_generation=True,
+        userdata=session_userdata,
     )
 
     assistant = Assistant(
         room=ctx.room,
-        user_id=user_id,
+        userdata=session_userdata,
         voice_state=voice_state,
-        case_id=case_id,
-        consent_given_at=consent_given_at,
-        caller_location=caller_location,
     )
     assistant.bind_tts(minimax_tts)
 
@@ -1241,6 +1273,7 @@ async def my_agent(ctx: JobContext):
         voice_state.message_type = "default"
         assistant._turn += 1
         assistant._last_user_utterance = ev.transcript
+        assistant._sync_userdata()
 
         async def _after_transcript() -> None:
             await assistant._broadcast_voice_bridge(
@@ -1295,6 +1328,7 @@ async def my_agent(ctx: JobContext):
         if not text:
             return
         assistant._last_agent_utterance = text
+        assistant._sync_userdata()
 
         async def _persist_agent_line() -> None:
             await assistant._append_transcript(
@@ -1375,8 +1409,6 @@ async def my_agent(ctx: JobContext):
             video_input=True,
         ),
     )
-
-    await ctx.connect()
 
 
 if __name__ == "__main__":

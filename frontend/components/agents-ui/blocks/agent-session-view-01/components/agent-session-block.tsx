@@ -1,23 +1,18 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, type MotionProps, motion } from 'motion/react';
+import React from 'react';
+import { type MotionProps, motion } from 'motion/react';
 import { useAgent, useSessionContext, useSessionMessages } from '@livekit/components-react';
-import { AgentChatTranscript } from '@/components/agents-ui/agent-chat-transcript';
 import {
   AgentControlBar,
   type AgentControlBarControls,
 } from '@/components/agents-ui/agent-control-bar';
-import { Shimmer } from '@/components/ai-elements/shimmer';
-import { DocumentParsingPanel } from '@/components/app/document-parsing-panel';
-import { MossResultsPanel } from '@/components/app/moss-results-panel';
 import { useDocumentCapture } from '@/hooks/useDocumentCapture';
 import { useDocumentParseEvents } from '@/hooks/useDocumentParseEvents';
 import { useMossContextEvents } from '@/hooks/useMossContextEvents';
 import { cn } from '@/lib/shadcn/utils';
-import { TileLayout } from './tile-view';
-
-const MotionMessage = motion.create(Shimmer);
+import { IntakeIntelligencePanel } from './intake-intelligence-panel';
+import { IntakeMediaPanel } from './intake-media-panel';
 
 const BOTTOM_VIEW_MOTION_PROPS: MotionProps = {
   variants: {
@@ -38,53 +33,6 @@ const BOTTOM_VIEW_MOTION_PROPS: MotionProps = {
     delay: 0.5,
     ease: 'easeOut',
   },
-};
-
-const CHAT_MOTION_PROPS: MotionProps = {
-  variants: {
-    hidden: {
-      opacity: 0,
-      transition: {
-        ease: 'easeOut',
-        duration: 0.3,
-      },
-    },
-    visible: {
-      opacity: 1,
-      transition: {
-        delay: 0.2,
-        ease: 'easeOut',
-        duration: 0.3,
-      },
-    },
-  },
-  initial: 'hidden',
-  animate: 'visible',
-  exit: 'hidden',
-};
-
-const SHIMMER_MOTION_PROPS: MotionProps = {
-  variants: {
-    visible: {
-      opacity: 1,
-      transition: {
-        ease: 'easeIn',
-        duration: 0.5,
-        delay: 0.8,
-      },
-    },
-    hidden: {
-      opacity: 0,
-      transition: {
-        ease: 'easeIn',
-        duration: 0.5,
-        delay: 0,
-      },
-    },
-  },
-  initial: 'hidden',
-  animate: 'visible',
-  exit: 'hidden',
 };
 
 interface FadeProps {
@@ -182,8 +130,6 @@ export function AgentSessionView_01({
 }: React.ComponentProps<'section'> & AgentSessionView_01Props) {
   const session = useSessionContext();
   const { messages } = useSessionMessages(session);
-  const [chatOpen, setChatOpen] = useState(false);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { state: agentState } = useAgent();
   const conversationStarted = messages.some((message) => message.from?.isLocal === true);
   const ariaActive =
@@ -196,107 +142,61 @@ export function AgentSessionView_01({
   const controls: AgentControlBarControls = {
     leave: true,
     microphone: true,
-    chat: supportsChatInput,
+    chat: false,
     camera: supportsVideoInput,
     screenShare: supportsScreenShare,
   };
 
-  useEffect(() => {
-    const lastMessage = messages.at(-1);
-    const lastMessageIsLocal = lastMessage?.from?.isLocal === true;
-
-    if (scrollAreaRef.current && lastMessageIsLocal) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
-    }
-  }, [messages]);
+  const displayPreConnectMessage =
+    agentState === 'connecting'
+      ? 'Aria is connecting — first cloud start can take up to 30 seconds…'
+      : preConnectMessage;
 
   return (
     <section
       ref={ref}
-      className={cn('bg-background relative z-10 h-full w-full overflow-hidden', className)}
+      className={cn(
+        'bg-background relative z-10 flex h-full w-full flex-col overflow-hidden',
+        className
+      )}
       {...props}
     >
-      <Fade top className="absolute inset-x-4 top-0 z-10 h-40" />
-      {/* transcript */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-2">
+        <IntakeMediaPanel
+          agentState={agentState}
+          preConnectMessage={displayPreConnectMessage}
+          showPreConnect={isPreConnectBufferEnabled && !ariaActive && messages.length === 0}
+          audioVisualizerType={audioVisualizerType}
+          audioVisualizerColor={audioVisualizerColor}
+          audioVisualizerColorShift={audioVisualizerColorShift}
+          audioVisualizerBarCount={audioVisualizerBarCount}
+          audioVisualizerRadialBarCount={audioVisualizerRadialBarCount}
+          audioVisualizerRadialRadius={audioVisualizerRadialRadius}
+          audioVisualizerGridRowCount={audioVisualizerGridRowCount}
+          audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
+          audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
+        />
+        <IntakeIntelligencePanel
+          agentState={agentState}
+          messages={messages}
+          mossEvents={mossEvents}
+          documentParseEvents={documentParseEvents}
+          showMoss={conversationStarted}
+        />
+      </div>
 
-      <div className="absolute top-0 bottom-[135px] flex w-full flex-col md:bottom-[170px]">
-        <AnimatePresence>
-          {chatOpen && (
-            <motion.div
-              {...CHAT_MOTION_PROPS}
-              className="flex h-full w-full flex-col gap-4 space-y-3 transition-opacity duration-300 ease-out"
-            >
-              <AgentChatTranscript
-                agentState={agentState}
-                messages={messages}
-                className="mx-auto w-full max-w-2xl [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:pt-40 md:[&>div>div]:px-6"
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-      {/* Live Knowledge Matches panel (Moss retrieval results) — renders beside the
-          visualizer/transcript, inside the RoomContext provider. Hidden until matches arrive. */}
-      <div className="pointer-events-auto absolute top-0 right-0 bottom-[170px] z-[60] w-full max-w-sm overflow-y-auto overscroll-contain px-4 pt-40 pb-4">
-        <div className="space-y-4">
-          <DocumentParsingPanel events={documentParseEvents} />
-          <MossResultsPanel events={mossEvents} hidden={!conversationStarted} />
-        </div>
-      </div>
-      <div className="pointer-events-none absolute inset-x-4 bottom-[148px] z-[55] flex justify-center md:bottom-[178px]">
-        <div className="border-border bg-background/90 text-muted-foreground pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-medium backdrop-blur-sm">
-          <span>LiveKit video</span>
-          <span>·</span>
-          <span>Deepgram nova-3 STT</span>
-          <span>·</span>
-          <span>MiniMax Speech 2.8 HD</span>
-        </div>
-      </div>
-      {/* Tile layout */}
-      <TileLayout
-        chatOpen={chatOpen}
-        audioVisualizerType={audioVisualizerType}
-        audioVisualizerColor={audioVisualizerColor}
-        audioVisualizerColorShift={audioVisualizerColorShift}
-        audioVisualizerBarCount={audioVisualizerBarCount}
-        audioVisualizerRadialBarCount={audioVisualizerRadialBarCount}
-        audioVisualizerRadialRadius={audioVisualizerRadialRadius}
-        audioVisualizerGridRowCount={audioVisualizerGridRowCount}
-        audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
-        audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
-      />
-      {/* Bottom */}
       <motion.div
         {...BOTTOM_VIEW_MOTION_PROPS}
-        className="absolute inset-x-3 bottom-0 z-50 md:inset-x-12"
+        className="border-border shrink-0 border-t px-3 py-3 lg:px-8"
       >
-        {/* Pre-connect message */}
-        {isPreConnectBufferEnabled && (
-          <AnimatePresence>
-            {!ariaActive && messages.length === 0 && (
-              <MotionMessage
-                key="pre-connect-message"
-                duration={2}
-                aria-hidden={ariaActive || messages.length > 0}
-                {...SHIMMER_MOTION_PROPS}
-                className="pointer-events-none mx-auto block w-full max-w-2xl pb-4 text-center text-sm font-semibold"
-              >
-                {agentState === 'connecting'
-                  ? 'Aria is connecting — first cloud start can take up to 30 seconds…'
-                  : preConnectMessage}
-              </MotionMessage>
-            )}
-          </AnimatePresence>
-        )}
-        <div className="bg-background relative mx-auto max-w-2xl pb-3 md:pb-12">
-          <Fade bottom className="absolute inset-x-0 top-0 h-4 -translate-y-full" />
+        <div className="bg-background relative mx-auto w-full max-w-4xl">
           <AgentControlBar
             variant="livekit"
             controls={controls}
-            isChatOpen={chatOpen}
+            isChatOpen={false}
             isConnected={session.isConnected}
             onDisconnect={session.end}
-            onIsChatOpenChange={setChatOpen}
+            onIsChatOpenChange={() => undefined}
           />
         </div>
       </motion.div>

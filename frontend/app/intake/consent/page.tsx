@@ -4,41 +4,13 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { CONSENT_COPY, detectConsumerLanguage } from '@/lib/privacy-copy';
 import { setConsentRecord } from '@/lib/privacy-token';
-
-function detectLanguage(): 'en' | 'es' {
-  if (typeof navigator === 'undefined') return 'en';
-  const lang = navigator.language?.toLowerCase() ?? 'en';
-  return lang.startsWith('es') ? 'es' : 'en';
-}
-
-const COPY = {
-  en: {
-    title: 'Before we begin',
-    body: 'Caseflow records this intake to match you with a participating personal injury firm. We redact names, phone numbers, and addresses before they reach firm dashboards or external AI models. Raw document images are stored in a separate encrypted bucket — never shown on the firm dashboard.',
-    checkbox:
-      'I understand this intake will be recorded and processed under Caseflow’s privacy controls.',
-    start: 'Start intake',
-    back: 'Back to home',
-    sttNote:
-      'Note: live speech audio is not regex-redacted during the call (STT limitation). Production roadmap: on-device redaction.',
-  },
-  es: {
-    title: 'Antes de comenzar',
-    body: 'Caseflow registra esta intake para conectarle con un bufete participante. Redactamos nombres, teléfonos y direcciones antes de que lleguen al panel del bufete o a modelos de IA externos. Las imágenes de documentos se guardan en un bucket cifrado aparte — nunca se muestran en el panel.',
-    checkbox:
-      'Entiendo que esta intake será grabada y procesada bajo los controles de privacidad de Caseflow.',
-    start: 'Iniciar intake',
-    back: 'Volver al inicio',
-    sttNote:
-      'Nota: el audio en vivo no se redacta por regex durante la llamada (limitación de STT). Hoja de ruta: redacción en el dispositivo.',
-  },
-} as const;
 
 export default function ConsentPage() {
   const router = useRouter();
-  const lang = useMemo(() => detectLanguage(), []);
-  const t = COPY[lang];
+  const lang = useMemo(() => detectConsumerLanguage(), []);
+  const t = CONSENT_COPY[lang];
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -64,11 +36,16 @@ export default function ConsentPage() {
     <div className="bg-background flex min-h-svh flex-col items-center justify-center px-6">
       <div className="border-border bg-card w-full max-w-lg rounded-xl border p-8 shadow-sm">
         <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
-          {lang === 'es' ? 'Privacidad' : 'Privacy'}
+          {lang === 'es' ? 'Paso 1 de 2 · Privacidad' : 'Step 1 of 2 · Privacy'}
         </p>
         <h1 className="mt-2 text-2xl font-semibold">{t.title}</h1>
         <p className="text-muted-foreground mt-4 text-sm leading-relaxed">{t.body}</p>
         <p className="text-muted-foreground mt-3 text-xs leading-relaxed">{t.sttNote}</p>
+        <p className="mt-4 text-sm">
+          <Link href="/privacy" className="text-primary font-medium underline underline-offset-4">
+            {t.privacyLink}
+          </Link>
+        </p>
         <label className="mt-6 flex cursor-pointer items-start gap-3 text-sm">
           <input
             type="checkbox"
@@ -76,7 +53,25 @@ export default function ConsentPage() {
             checked={checked}
             onChange={(e) => setChecked(e.target.checked)}
           />
-          <span>{t.checkbox}</span>
+          <span>
+            {lang === 'en' ? (
+              <>
+                I understand this intake will be recorded and processed under{' '}
+                <Link href="/privacy" className="text-primary underline underline-offset-2">
+                  Caseflow&apos;s privacy controls
+                </Link>
+                .
+              </>
+            ) : (
+              <>
+                Entiendo que esta intake será grabada y procesada bajo los{' '}
+                <Link href="/privacy" className="text-primary underline underline-offset-2">
+                  controles de privacidad de Caseflow
+                </Link>
+                .
+              </>
+            )}
+          </span>
         </label>
         <Button className="mt-6 w-full" size="lg" disabled={!checked || busy} onClick={onStart}>
           {t.start}

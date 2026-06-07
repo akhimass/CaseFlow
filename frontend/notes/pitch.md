@@ -1,8 +1,8 @@
-# Caseflow — pitch notes
+# Caseflowy — pitch notes
 
 ## The one-liner
 
-Caseflow is a multilingual video intake agent for personal injury. A Spanish- or
+Caseflowy is a multilingual video intake agent for personal injury. A Spanish- or
 English-speaking caller video-calls our agent, which runs intake in their
 language, parses documents they hold to the camera, retrieves comparable
 settlements and the statute of limitations live via Moss, catches discrepancies
@@ -12,7 +12,7 @@ firm — delivering an audited case file, not just a lead.
 ## Why the demo is an auto rear-end
 
 Our demo today is an auto rear-end because it's the most common PI case and the
-most demo-friendly. But Caseflow handles the full PI vertical — slip-and-fall,
+most demo-friendly. But Caseflowy handles the full PI vertical — slip-and-fall,
 dog bites, premises liability, medical malpractice, workplace third-party
 injuries, and wrongful death. Our knowledge base covers state law across these
 types in California, Texas, and Florida, and the intake flow adapts to the case

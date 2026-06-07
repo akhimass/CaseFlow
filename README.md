@@ -1,8 +1,8 @@
-# Caseflow — the multilingual video intake agent for personal injury
+# Caseflowy — the multilingual video intake agent for personal injury
 
-**[caseflow.com](https://caseflow.com)** · Built at the YC Conversational AI Hackathon (hosted by Moss)
+**[caseflowy.com](https://caseflowy.com)** · Built at the YC Conversational AI Hackathon (hosted by Moss)
 
-> A Spanish- or English-speaking accident victim video-calls Caseflow. The agent
+> A Spanish- or English-speaking accident victim video-calls Caseflowy. The agent
 > runs intake in their language, parses the documents they hold up to the camera,
 > retrieves the comparable settlements and statute-of-limitations rules live,
 > catches discrepancies between their account and their evidence, values the case,
@@ -30,7 +30,7 @@ that business — intake — is broken in three ways:
   deadline, and sanity-check the story. The expensive human work happens _after_
   the lead is paid for.
 
-**Caseflow turns the first call into an audited case file.** Same conversation a
+**Caseflowy turns the first call into an audited case file.** Same conversation a
 senior paralegal would have — in the caller's language, 24/7, grounded in live
 legal retrieval and the caller's own documents — handed to the firm ready to act.
 
@@ -40,7 +40,7 @@ The hackathon's premise: _"Voice models are solved. Retrieval is the new
 bottleneck."_ That is exactly the PI intake problem. The hard part isn't talking
 — it's grounding the conversation in the right jurisdiction's law, the right
 comparable settlements, and the caller's actual documents, in real time, and
-catching when the story and the evidence disagree. Caseflow is built around
+catching when the story and the evidence disagree. Caseflowy is built around
 retrieval as the core, not an afterthought.
 
 ## What it does
@@ -69,7 +69,7 @@ retrieval as the core, not an afterthought.
 
 Spanish-speaking, rear-ended in Orange County. Holds up a police report (fault
 undetermined) and an ER discharge (whiplash, MRI ordered). Says _"el otro
-conductor pasó la luz roja."_ Caseflow catches the contradiction, asks gently in
+conductor pasó la luz roja."_ Caseflowy catches the contradiction, asks gently in
 Spanish, retrieves CA rear-end comparables and the 2-year filing window, values
 the case, and surfaces matched firms — all visible on the firm dashboard in real
 time.
@@ -158,29 +158,17 @@ sharpening the comparable-settlement query.
 
 ---
 
-## Run it
+## Try the demo
 
-Full scope, demo flow, and environment variables: see [CLAUDE.md](./CLAUDE.md).
+There are two ways to experience Caseflowy:
 
-```bash
-cd CaseFlow
-pnpm setup
-pnpm moss:index        # build the four Moss indexes from agent-py/knowledge/
-pnpm agent:py:download-files   # VAD + turn-detector models (first run only)
-pnpm dev               # starts the Python agent worker + Next.js app
-```
-
-- Landing: http://localhost:3000
-- Intake: http://localhost:3000/intake
-- Firm dashboard: http://localhost:3000/firm
-
-You need two processes — the frontend alone cannot dispatch the agent. In the
-agent terminal you should see `registered worker {"agent_name": "caseflow-agent", ...}`.
-
-**Agent didn't join the room?** Check, in order: (1) the agent worker is running
-(`pnpm dev:agent-py`); (2) model files downloaded (`pnpm agent:py:download-files`);
-(3) `AGENT_NAME` matches between `frontend/.env.local` and the agent; (4)
-`LIVEKIT_URL` / keys match across both `.env.local` files.
+- **As a client** — start a video intake call and describe your accident. The
+  agent runs intake in English or Spanish, asks you to hold up any documents to
+  the camera, and walks you through to a matched firm.
+- **As a firm** — sign in as one of the pre-existing partner law firms to watch
+  the firm dashboard light up in real time: live transcript, parsed documents,
+  Moss retrieval cards, the consistency audit, case valuation, and the matched
+  lead — the audited case file, not just a name and number.
 
 ## License
 

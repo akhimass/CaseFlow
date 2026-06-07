@@ -15,10 +15,10 @@ import { useLocalTrackRef } from './tile-view';
 
 const AGENT_STATE_LABEL: Record<string, string> = {
   connecting: 'Connecting…',
-  initializing: 'Starting Aria…',
-  listening: 'Aria is listening',
-  thinking: 'Aria is thinking',
-  speaking: 'Aria is speaking',
+  initializing: 'Connecting…',
+  listening: 'Listening',
+  thinking: 'Thinking',
+  speaking: 'Speaking',
   disconnected: 'Disconnected',
 };
 
@@ -39,7 +39,7 @@ interface IntakeMediaPanelProps {
 
 export function IntakeMediaPanel({
   agentState,
-  preConnectMessage = 'Waiting for Aria to join…',
+  preConnectMessage = 'Connecting you to the Caseflow specialist…',
   showPreConnect = false,
   audioVisualizerType,
   audioVisualizerColor,
@@ -63,7 +63,7 @@ export function IntakeMediaPanel({
       ? cameraTrack
       : undefined;
   const isAvatar = agentVideoTrack !== undefined;
-  const statusLabel = AGENT_STATE_LABEL[agentState] ?? 'Aria';
+  const statusLabel = AGENT_STATE_LABEL[agentState] ?? 'Caseflow';
 
   return (
     <div className="border-border flex h-full min-h-0 flex-col border-b lg:border-r lg:border-b-0">
@@ -93,7 +93,7 @@ export function IntakeMediaPanel({
                 className="text-muted-foreground absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-sm"
               >
                 <span className="font-medium">Your camera</span>
-                <span className="text-xs">Turn on video to show documents to Aria</span>
+                <span className="text-xs">Turn on video to show your documents</span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -123,9 +123,9 @@ export function IntakeMediaPanel({
                 className={cn(
                   'absolute rounded-full border transition-all duration-700',
                   agentState === 'speaking'
-                    ? 'size-[200px] opacity-60 animate-ping'
+                    ? 'size-[200px] animate-ping opacity-60'
                     : agentState === 'thinking'
-                      ? 'size-[188px] opacity-40 animate-pulse'
+                      ? 'size-[188px] animate-pulse opacity-40'
                       : 'size-[180px] opacity-20'
                 )}
                 style={{ borderColor: `${audioVisualizerColor ?? '#2563EB'}60` }}

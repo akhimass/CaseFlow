@@ -22,9 +22,9 @@ export function DocumentParsingPanel({ events }: { events: DocumentParseEvent[] 
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm font-semibold">{formatDocType(event.docType)}</span>
             {event.status === 'parsing' ? (
-              <span className="text-amber-600 text-xs font-medium animate-pulse">Parsing…</span>
+              <span className="animate-pulse text-xs font-medium text-amber-600">Parsing…</span>
             ) : (
-              <span className="text-emerald-600 text-xs font-medium">
+              <span className="text-xs font-medium text-emerald-600">
                 {Object.keys(event.fields).length} fields
               </span>
             )}
@@ -36,7 +36,7 @@ export function DocumentParsingPanel({ events }: { events: DocumentParseEvent[] 
                 .map(([key, value]) => (
                   <div key={key} className="flex justify-between gap-2">
                     <dt className="text-muted-foreground">{key}</dt>
-                    <dd className="font-medium text-right">{String(value)}</dd>
+                    <dd className="text-right font-medium">{String(value)}</dd>
                   </div>
                 ))}
             </dl>

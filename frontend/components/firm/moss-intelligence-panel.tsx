@@ -169,7 +169,7 @@ function StreamSection({
             </span>
           ) : null}
           {retrieval?.cached ? (
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[10px] font-medium">
               cached
             </span>
           ) : null}

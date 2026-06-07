@@ -41,15 +41,14 @@ export function VoiceBridgePanel({ record }: { record: CaseRecord }) {
         Voice bridge · Deepgram → MiniMax
       </h3>
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <Badge label="STT" value={`${bridge.stt_provider ?? 'Deepgram'} ${bridge.stt_model ?? 'nova-3'}`} />
+        <Badge
+          label="STT"
+          value={`${bridge.stt_provider ?? 'Deepgram'} ${bridge.stt_model ?? 'nova-3'}`}
+        />
         <span className="text-muted-foreground">→</span>
         <Badge
           label={langLabel(bridge.detected_language)}
-          value={
-            bridge.language_switched
-              ? 'language switched'
-              : 'multilingual detect'
-          }
+          value={bridge.language_switched ? 'language switched' : 'multilingual detect'}
           accent
         />
         <span className="text-muted-foreground">→</span>
@@ -65,15 +64,7 @@ export function VoiceBridgePanel({ record }: { record: CaseRecord }) {
   );
 }
 
-function Badge({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: boolean;
-}) {
+function Badge({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${

@@ -75,12 +75,12 @@ export function UnsiloedParsedPanel({ record }: { record: CaseRecord }) {
           Unsiloed · live document parsing
         </h3>
         {parsing?.status === 'parsing' && (
-          <span className="bg-amber-500/15 text-amber-700 dark:text-amber-400 rounded-full px-2 py-0.5 text-xs font-medium">
+          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
             Parsing {formatDocType(String(parsing.doc_type ?? 'document'))}…
           </span>
         )}
         {parsing?.status === 'parsed' && (
-          <span className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 rounded-full px-2 py-0.5 text-xs font-medium">
+          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
             {parsing.field_count ?? 0} fields extracted
           </span>
         )}

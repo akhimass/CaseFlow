@@ -48,7 +48,7 @@ export const WelcomeView = ({
 
       <div className="fixed bottom-5 left-0 flex w-full items-center justify-center px-6">
         <p className="text-muted-foreground max-w-prose pt-1 text-xs leading-5 font-normal text-pretty md:text-sm">
-          Caseflow is not a law firm and does not provide legal advice. Your conversation helps
+          Caseflowy is not a law firm and does not provide legal advice. Your conversation helps
           match you with a participating personal injury firm.
         </p>
       </div>

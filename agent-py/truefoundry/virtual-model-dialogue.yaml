@@ -1,0 +1,36 @@
+# Caseflow dialogue virtual model — the front door for live conversation.
+#
+# Apply EITHER via the dashboard (AI Gateway -> Virtual Models -> create
+# "caseflow/dialogue" and paste this routing_config into the form), OR via GitOps
+# by exporting the full manifest from the UI and committing it here.
+#
+# Strategy: priority-based. Highest-priority healthy target wins; on failure or a
+# fallback status code the gateway moves to the next target automatically — this
+# REPLACES the hand-rolled Python failover chain. The app calls one model name
+# ("caseflow/dialogue", set via TFY_DIALOGUE_VIRTUAL_MODEL) and never hard-codes
+# providers again.
+#
+# Replace the `target:` values with the exact catalog model ids in YOUR gateway
+# (AI Gateway -> Models shows the FQNs, e.g. "openai-main/gpt-4.1-mini").
+routing_config:
+  type: priority-based-routing
+  load_balance_targets:
+    # MiniMax-Text-01: tool calling, no <think> tokens leaking into TTS, fast.
+    - target: minimax/MiniMax-Text-01
+      priority: 0
+      retry_config:
+        attempts: 1
+        delay: 150
+        on_status_codes: ["429", "500", "502", "503"]
+      fallback_status_codes: ["401", "403", "404", "429", "500", "502", "503"]
+      fallback_candidate: true
+    - target: openai-main/gpt-4.1-mini
+      priority: 1
+      retry_config:
+        attempts: 1
+        delay: 150
+      fallback_candidate: true
+    # Reliable last resort when the OpenAI free tier is exhausted.
+    - target: bedrock/us.amazon.nova-lite-v1:0
+      priority: 2
+      fallback_candidate: true

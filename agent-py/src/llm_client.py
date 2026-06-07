@@ -48,6 +48,59 @@ def _livekit_inference_llm() -> llm.LLM | None:
     )
 
 
+def _tfy_guardrails_header() -> str | None:
+    """``X-TFY-GUARDRAILS`` payload for TF-routed dialogue clients, from env.
+
+    Note: TrueFoundry output guardrails do not run on streamed responses, but
+    *input* guardrails always run — so dialogue prompts still get gateway-side
+    PII screening on top of our app-level RedactingLLM.
+    """
+    inp = [g.strip() for g in os.getenv("TFY_INPUT_GUARDRAILS", "").split(",") if g.strip()]
+    out = [g.strip() for g in os.getenv("TFY_OUTPUT_GUARDRAILS", "").split(",") if g.strip()]
+    if not inp and not out:
+        return None
+    return json.dumps(
+        {
+            "llm_input_guardrails": inp,
+            "llm_output_guardrails": out,
+            "mcp_tool_pre_invoke_guardrails": [],
+            "mcp_tool_post_invoke_guardrails": [],
+        }
+    )
+
+
+def _tfy_virtual_dialogue_llm(
+    *, case_id: str | None, temperature: float, max_tokens: int
+) -> llm.LLM | None:
+    """TrueFoundry virtual-model dialogue LLM (the front door for conversation).
+
+    When ``TFY_DIALOGUE_VIRTUAL_MODEL`` is set (e.g. ``caseflow/dialogue``) and
+    the gateway is configured, conversation is routed through one TF virtual model
+    that owns load balancing + failover across MiniMax/OpenAI/Bedrock. The Python
+    chain below stays as a deeper safety net. Unset → no behaviour change.
+    """
+    vm = os.getenv("TFY_DIALOGUE_VIRTUAL_MODEL", "").strip()
+    gateway_ready = bool(
+        _get_env("TRUEFOUNDRY_GATEWAY_URL") and _get_env("TRUEFOUNDRY_API_KEY")
+    )
+    if not vm or not gateway_ready:
+        return None
+    return OpenAIChatLLM(
+        api_key=_get_env("TRUEFOUNDRY_API_KEY"),
+        model=vm,
+        provider="truefoundry",
+        default_temperature=temperature,
+        case_id=case_id,
+        max_tokens=max_tokens,
+        label="truefoundry-virtual-dialogue",
+        base_url=_get_env(
+            "OPENAI_BASE_URL",
+            "TRUEFOUNDRY_GATEWAY_URL",
+            default="https://gateway.truefoundry.ai",
+        ),
+    )
+
+
 def _minimax_llm(
     *, case_id: str | None, temperature: float, max_tokens: int
 ) -> llm.LLM | None:
@@ -254,12 +307,17 @@ class OpenAIChatLLM(llm.LLM):
 
     def _ensure_client(self) -> openai.AsyncClient:
         if self._client is None:
+            headers: dict[str, str] = {
+                "X-TFY-METADATA": "{}",
+                "X-TFY-LOGGING-CONFIG": '{"enabled": true}',
+            }
+            if self._provider == "truefoundry":
+                guardrails = _tfy_guardrails_header()
+                if guardrails:
+                    headers["X-TFY-GUARDRAILS"] = guardrails
             client_kwargs: dict[str, Any] = {
                 "api_key": self._api_key or "placeholder",
-                "default_headers": {
-                    "X-TFY-METADATA": "{}",
-                    "X-TFY-LOGGING-CONFIG": '{"enabled": true}',
-                },
+                "default_headers": headers,
             }
             if self._base_url:
                 client_kwargs["base_url"] = self._base_url
@@ -486,6 +544,13 @@ class TrueFoundryLLM(llm.LLM):
             temperature=self._primary_temperature,
             max_tokens=self._max_tokens,
         )
+        # Front door: a single TrueFoundry virtual model that owns provider
+        # routing/failover. Preferred first when configured; otherwise None.
+        tfy_virtual_dialogue = _tfy_virtual_dialogue_llm(
+            case_id=case_id,
+            temperature=self._primary_temperature,
+            max_tokens=self._max_tokens,
+        )
         bedrock_llm: llm.LLM | None = (
             BedrockLLM(temperature=self._primary_temperature, max_tokens=self._max_tokens)
             if bedrock_configured()
@@ -513,7 +578,12 @@ class TrueFoundryLLM(llm.LLM):
             if candidate is not None and candidate not in chain:
                 chain.append(candidate)
 
+        # TrueFoundry virtual model leads the chain when configured (front door),
+        # unless DIALOGUE_PRIMARY explicitly pins a different provider first.
+        if primary_pref in {"truefoundry", "tfy", "virtual"}:
+            _add(tfy_virtual_dialogue)
         _add(by_pref.get(primary_pref))
+        _add(tfy_virtual_dialogue)
         # Reliability-ordered remainder (deduped against the preferred primary).
         _add(minimax_llm)
         _add(bedrock_llm)

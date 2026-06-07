@@ -46,12 +46,19 @@ MODEL_ALIASES: dict[str, str] = {
 CHAT_TIMEOUT_S = float(os.getenv("GATEWAY_CHAT_TIMEOUT_S", "8"))
 TTS_TTFT_TIMEOUT_S = float(os.getenv("GATEWAY_TTS_TTFT_TIMEOUT_S", "2"))
 
+# TrueFoundry virtual model (FQN, e.g. "caseflow/reasoning") used for gateway-routed
+# reasoning calls. When set, the gateway hands routing/failover to TrueFoundry's
+# virtual model instead of the raw model id. Empty → use the resolved model id.
+TFY_REASONING_MODEL = os.getenv("TFY_REASONING_MODEL", "").strip()
+
 
 @dataclass
 class GatewayMetadata:
     case_id: str = ""
     turn: int = 0
     caller_id: str = ""
+    firm_id: str = ""
+    mode: str = ""  # intake | firm_briefing | audit | synthesis | ...
 
     def as_header(self) -> str:
         payload = {
@@ -60,6 +67,8 @@ class GatewayMetadata:
                 "case_id": self.case_id,
                 "turn": self.turn,
                 "caller_id": self.caller_id,
+                "firm_id": self.firm_id,
+                "mode": self.mode,
                 "application": "caseflow",
             }.items()
             if v
@@ -99,7 +108,47 @@ def _gateway_base() -> str:
     return (os.getenv("TRUEFOUNDRY_GATEWAY_URL") or "").rstrip("/")
 
 
-def _auth_headers(metadata: GatewayMetadata | None = None) -> dict[str, str]:
+def _front_door_enabled() -> bool:
+    """Whether TrueFoundry should be the *primary* hop (not just a fallback).
+
+    ``TRUEFOUNDRY_FRONT_DOOR`` = ``on``/``off`` forces it; ``auto`` (default)
+    turns it on whenever the gateway is configured. Direct providers always stay
+    in the chain as deeper safety nets, so the demo never hard-fails on TF.
+    """
+    val = os.getenv("TRUEFOUNDRY_FRONT_DOOR", "auto").strip().lower()
+    if val in {"0", "off", "false", "no"}:
+        return False
+    if val in {"1", "on", "true", "yes"}:
+        return True
+    return gateway_configured()
+
+
+def _guardrails_header() -> str | None:
+    """Build the per-request ``X-TFY-GUARDRAILS`` payload from env, if configured.
+
+    ``TFY_INPUT_GUARDRAILS`` / ``TFY_OUTPUT_GUARDRAILS`` are comma-separated
+    guardrail group names (e.g. ``caseflow/pii-detection``). Returns None when
+    neither is set so we don't send an empty policy.
+    """
+    inp = [g.strip() for g in os.getenv("TFY_INPUT_GUARDRAILS", "").split(",") if g.strip()]
+    out = [g.strip() for g in os.getenv("TFY_OUTPUT_GUARDRAILS", "").split(",") if g.strip()]
+    if not inp and not out:
+        return None
+    return json.dumps(
+        {
+            "llm_input_guardrails": inp,
+            "llm_output_guardrails": out,
+            "mcp_tool_pre_invoke_guardrails": [],
+            "mcp_tool_post_invoke_guardrails": [],
+        }
+    )
+
+
+def _auth_headers(
+    metadata: GatewayMetadata | None = None,
+    *,
+    with_guardrails: bool = False,
+) -> dict[str, str]:
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {os.getenv('TRUEFOUNDRY_API_KEY', '')}",
@@ -107,6 +156,10 @@ def _auth_headers(metadata: GatewayMetadata | None = None) -> dict[str, str]:
     }
     if metadata:
         headers["X-TFY-METADATA"] = metadata.as_header()
+    if with_guardrails:
+        guardrails = _guardrails_header()
+        if guardrails:
+            headers["X-TFY-GUARDRAILS"] = guardrails
     headers["x-tfy-request-timeout"] = str(int(CHAT_TIMEOUT_S * 1000))
     return headers
 
@@ -117,11 +170,15 @@ def _chat_paths(base: str) -> list[str]:
 
 def _provider_chain(*, allow_failover: bool) -> list[ProviderName]:
     chain: list[ProviderName] = []
+    # Front door: route through TrueFoundry first so every gateway call is
+    # governed (logging, budgets, guardrails, virtual-model routing).
+    if gateway_configured() and _front_door_enabled():
+        chain.append("truefoundry")
     if openai_direct_configured():
         chain.append("openai-direct")
     elif openai_configured():
         chain.append("openai")
-    if gateway_configured():
+    if gateway_configured() and "truefoundry" not in chain:
         chain.append("truefoundry")
     if bedrock_configured():
         chain.append("bedrock")
@@ -147,7 +204,7 @@ async def _post_chat(
         "messages": messages,
         "temperature": temperature,
     }
-    headers = _auth_headers(metadata)
+    headers = _auth_headers(metadata, with_guardrails=True)
     last_error: Exception | None = None
 
     async with httpx.AsyncClient(timeout=timeout_s) as client:
@@ -252,14 +309,17 @@ async def _invoke_provider(
         return data, resolved_model
 
     if provider == "truefoundry":
+        # Prefer the TrueFoundry virtual model (gateway-side load balancing +
+        # failover) when configured; otherwise pass the resolved model id through.
+        tf_model = TFY_REASONING_MODEL or resolved_model
         data = await _post_chat(
-            model=resolved_model,
+            model=tf_model,
             messages=messages,
             temperature=temperature,
             metadata=metadata,
             timeout_s=CHAT_TIMEOUT_S,
         )
-        return data, resolved_model
+        return data, tf_model
 
     if provider == "bedrock":
         data = await _bedrock_chat(messages=messages, temperature=temperature)

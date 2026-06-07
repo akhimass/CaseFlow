@@ -11,17 +11,26 @@ const TABLE_COLS =
 const SIDEBAR_ITEMS = ['Home', 'Metrics', 'Cases', 'Firm', 'Overview'] as const;
 
 const AGENT_TRANSCRIPT = [
-  { role: 'aria', text: 'Hola, soy Aria. Cuénteme qué pasó el día del accidente.' },
-  { role: 'caller', text: 'Me chocaron por atrás en un semáforo en el Embarcadero…' },
-  { role: 'aria', text: '¿Tiene el reporte policial? Puede mostrarlo a la cámara.' },
+  {
+    role: 'agent',
+    text: 'Welcome to Caseflowy — take a breath, I’m here to help. Can you tell me what happened?',
+  },
+  {
+    role: 'caller',
+    text: 'Me chocaron por atrás en un semáforo… el otro conductor se pasó la luz roja.',
+  },
+  {
+    role: 'agent',
+    text: 'Lo siento mucho. ¿Tiene el reporte policial? Puede mostrarlo a la cámara.',
+  },
   { role: 'system', text: 'Document parsed · Police report · Fault: undetermined' },
   {
-    role: 'aria',
-    text: 'Veo una discrepancia — usted dijo luz roja; el reporte no lo confirma.',
+    role: 'agent',
+    text: 'Veo una diferencia — usted mencionó la luz roja, pero el reporte no lo confirma. ¿Había testigos en el cruce?',
   },
-  { role: 'aria', text: '¿Recibió tratamiento en el hospital o urgencias?' },
-  { role: 'system', text: 'Moss · Comparable settlements · SF rear-end · $45K–$72K' },
-  { role: 'aria', text: 'Su caso califica. Le conecto con Pacific Heights Injury Law.' },
+  { role: 'agent', text: '¿Recibió atención médica o fue a urgencias?' },
+  { role: 'system', text: 'Moss · Comparable settlements · CA rear-end · $45K–$95K' },
+  { role: 'agent', text: 'Su caso califica. Un bufete lo contactará mañana por la mañana.' },
 ] as const;
 
 function WindowChrome({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -77,8 +86,8 @@ export function ClientIntakePreview({ className }: { className?: string }) {
               </span>
             </div>
             <div className="text-center">
-              <p className="text-sm font-semibold">Aria</p>
-              <p className="text-muted-foreground text-xs">Video intake agent · ES / EN</p>
+              <p className="text-sm font-semibold">Caseflowy intake specialist</p>
+              <p className="text-muted-foreground text-xs">Live video intake · EN / ES</p>
             </div>
             <WaveBars />
           </div>
@@ -94,18 +103,18 @@ export function ClientIntakePreview({ className }: { className?: string }) {
                     key={`${line.role}-${i}`}
                     className={cn(
                       'rounded-lg px-2.5 py-2 text-xs leading-relaxed',
-                      line.role === 'aria' && 'bg-muted text-foreground',
+                      line.role === 'agent' && 'bg-muted text-foreground',
                       line.role === 'caller' && 'bg-background border-border border',
                       line.role === 'system' &&
                         'bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200'
                     )}
                   >
                     <span className="mb-0.5 block text-[10px] font-semibold tracking-wide uppercase opacity-60">
-                      {line.role === 'aria'
-                        ? 'Aria'
+                      {line.role === 'agent'
+                        ? 'Specialist'
                         : line.role === 'caller'
                           ? 'Caller'
-                          : 'Caseflow'}
+                          : 'Caseflowy'}
                     </span>
                     {line.text}
                   </div>
@@ -130,7 +139,7 @@ export function FirmDashboardPreview({ className }: { className?: string }) {
           <aside className="border-border bg-muted/30 hidden border-r p-3 md:block">
             <div className="mb-4 flex items-center gap-2 text-sm font-semibold">
               <LogoMark className="size-7" />
-              <span className="lowercase">caseflow</span>
+              <span className="lowercase">caseflowy</span>
             </div>
             {SIDEBAR_ITEMS.map((item) => (
               <div

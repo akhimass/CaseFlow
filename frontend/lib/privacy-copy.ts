@@ -8,7 +8,7 @@ export const PRIVACY_COPY = {
   en: {
     title: 'Privacy policy',
     summary:
-      'Caseflow records intake conversations to match you with a participating personal injury firm. We treat your information carefully and limit what firms and AI systems can see.',
+      'Caseflowy records intake conversations to match you with a participating personal injury firm. We treat your information carefully and limit what firms and AI systems can see.',
     sections: [
       {
         heading: 'What we collect',
@@ -20,7 +20,7 @@ export const PRIVACY_COPY = {
       },
       {
         heading: 'Who can see your information',
-        body: 'Matched participating firms receive a redacted case file and verbal brief. Caseflow is not a law firm and does not provide legal advice.',
+        body: 'Matched participating firms receive a redacted case file and verbal brief. Caseflowy is not a law firm and does not provide legal advice.',
       },
       {
         heading: 'Speech audio limitation',
@@ -37,7 +37,7 @@ export const PRIVACY_COPY = {
   es: {
     title: 'Política de privacidad',
     summary:
-      'Caseflow registra las conversaciones de intake para conectarle con un bufete participante. Tratamos su información con cuidado y limitamos lo que los bufetes y los sistemas de IA pueden ver.',
+      'Caseflowy registra las conversaciones de intake para conectarle con un bufete participante. Tratamos su información con cuidado y limitamos lo que los bufetes y los sistemas de IA pueden ver.',
     sections: [
       {
         heading: 'Qué recopilamos',
@@ -49,7 +49,7 @@ export const PRIVACY_COPY = {
       },
       {
         heading: 'Quién puede ver su información',
-        body: 'Los bufetes participantes que coincidan reciben un expediente redactado y un resumen verbal. Caseflow no es un bufete y no ofrece asesoría legal.',
+        body: 'Los bufetes participantes que coincidan reciben un expediente redactado y un resumen verbal. Caseflowy no es un bufete y no ofrece asesoría legal.',
       },
       {
         heading: 'Limitación del audio en vivo',
@@ -68,9 +68,9 @@ export const PRIVACY_COPY = {
 export const CONSENT_COPY = {
   en: {
     title: 'Before we begin',
-    body: 'Caseflow records this intake to match you with a participating personal injury firm. We redact names, phone numbers, and addresses before they reach firm dashboards or external AI models. Raw document images are stored in a separate encrypted bucket — never shown on the firm dashboard.',
+    body: 'Caseflowy records this intake to match you with a participating personal injury firm. We redact names, phone numbers, and addresses before they reach firm dashboards or external AI models. Raw document images are stored in a separate encrypted bucket — never shown on the firm dashboard.',
     checkbox:
-      'I understand this intake will be recorded and processed under Caseflow’s privacy controls.',
+      'I understand this intake will be recorded and processed under Caseflowy’s privacy controls.',
     privacyLink: 'Read our privacy policy',
     start: 'Start intake',
     back: 'Back to home',
@@ -79,9 +79,9 @@ export const CONSENT_COPY = {
   },
   es: {
     title: 'Antes de comenzar',
-    body: 'Caseflow registra esta intake para conectarle con un bufete participante. Redactamos nombres, teléfonos y direcciones antes de que lleguen al panel del bufete o a modelos de IA externos. Las imágenes de documentos se guardan en un bucket cifrado aparte — nunca se muestran en el panel.',
+    body: 'Caseflowy registra esta intake para conectarle con un bufete participante. Redactamos nombres, teléfonos y direcciones antes de que lleguen al panel del bufete o a modelos de IA externos. Las imágenes de documentos se guardan en un bucket cifrado aparte — nunca se muestran en el panel.',
     checkbox:
-      'Entiendo que esta intake será grabada y procesada bajo los controles de privacidad de Caseflow.',
+      'Entiendo que esta intake será grabada y procesada bajo los controles de privacidad de Caseflowy.',
     privacyLink: 'Lea nuestra política de privacidad',
     start: 'Iniciar intake',
     back: 'Volver al inicio',

@@ -36,7 +36,7 @@ export interface AppConfig {
 }
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {
-  companyName: 'Caseflow',
+  companyName: 'Caseflowy',
   pageTitle: CONSUMER_PAGE_TITLE,
   pageDescription: CONSUMER_PAGE_DESCRIPTION,
 

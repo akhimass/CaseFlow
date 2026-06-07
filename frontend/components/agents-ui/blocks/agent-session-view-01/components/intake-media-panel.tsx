@@ -39,7 +39,7 @@ interface IntakeMediaPanelProps {
 
 export function IntakeMediaPanel({
   agentState,
-  preConnectMessage = 'Connecting you to the Caseflow specialist…',
+  preConnectMessage = 'Connecting you to the Caseflowy specialist…',
   showPreConnect = false,
   audioVisualizerType,
   audioVisualizerColor,
@@ -63,7 +63,7 @@ export function IntakeMediaPanel({
       ? cameraTrack
       : undefined;
   const isAvatar = agentVideoTrack !== undefined;
-  const statusLabel = AGENT_STATE_LABEL[agentState] ?? 'Caseflow';
+  const statusLabel = AGENT_STATE_LABEL[agentState] ?? 'Caseflowy';
 
   return (
     <div className="border-border flex h-full min-h-0 flex-col border-b lg:border-r lg:border-b-0">

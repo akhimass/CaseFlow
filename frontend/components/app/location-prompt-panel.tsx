@@ -18,8 +18,11 @@ const COPY = {
     skip: 'Skip — use San Francisco, CA',
     locating: 'Finding location…',
     geoError: 'Could not detect location — enter your city below.',
+    geoDenied: 'Location permission was blocked — enter your city below.',
+    geoTimeout: 'Location is taking too long — enter your city below.',
+    geoInsecure: 'Location needs a secure (https) connection — enter your city below.',
     disclaimer:
-      'Caseflow is not a law firm and does not provide legal advice. Your conversation helps match you with a participating personal injury firm.',
+      'Caseflowy is not a law firm and does not provide legal advice. Your conversation helps match you with a participating personal injury firm.',
   },
   es: {
     eyebrow: 'Paso 2 de 2',
@@ -31,8 +34,11 @@ const COPY = {
     skip: 'Omitir — usar San Francisco, CA',
     locating: 'Buscando ubicación…',
     geoError: 'No pudimos detectar la ubicación — ingrese su ciudad abajo.',
+    geoDenied: 'Se bloqueó el permiso de ubicación — ingrese su ciudad abajo.',
+    geoTimeout: 'La ubicación está tardando demasiado — ingrese su ciudad abajo.',
+    geoInsecure: 'La ubicación requiere una conexión segura (https) — ingrese su ciudad abajo.',
     disclaimer:
-      'Caseflow no es un bufete y no ofrece asesoría legal. Su conversación ayuda a conectarle con un bufete participante.',
+      'Caseflowy no es un bufete y no ofrece asesoría legal. Su conversación ayuda a conectarle con un bufete participante.',
   },
 } as const;
 
@@ -43,17 +49,12 @@ function detectLanguage(): 'en' | 'es' {
 
 async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
   try {
-    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    const res = await fetch(`/api/geocode/reverse?lat=${lat}&lon=${lon}`, {
+      headers: { Accept: 'application/json' },
+    });
     if (!res.ok) return null;
-    const data = (await res.json()) as {
-      address?: { city?: string; town?: string; county?: string; state?: string };
-    };
-    const city = data.address?.city ?? data.address?.town ?? data.address?.county;
-    const state = data.address?.state;
-    if (city && state) return `${city}, ${state}`;
-    if (city) return city;
-    return null;
+    const data = (await res.json()) as { label?: string | null };
+    return data.label ?? null;
   } catch {
     return null;
   }
@@ -73,30 +74,37 @@ export function LocationPromptPanel({ onConfirmed }: Props) {
   const confirm = useCallback(
     async (valueOverride?: string) => {
       const value = (valueOverride ?? location).trim() || DEFAULT_LOCATION;
-      const record = getConsentRecord();
-      if (!record) return;
       setBusy(true);
-      setConsentRecord({ ...record, caller_location: value });
       try {
-        await fetch('/api/cases/consent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            case_id: record.case_id,
-            consent_given_at: record.consent_given_at,
-            caller_location: value,
-          }),
-        });
+        const record = getConsentRecord();
+        if (record) {
+          setConsentRecord({ ...record, caller_location: value });
+          await fetch('/api/cases/consent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              case_id: record.case_id,
+              consent_given_at: record.consent_given_at,
+              caller_location: value,
+            }),
+          });
+        }
       } catch {
         // local session still has location for agent metadata
+      } finally {
+        setBusy(false);
       }
-      setBusy(false);
       onConfirmed();
     },
     [location, onConfirmed]
   );
 
   const useMyLocation = useCallback(() => {
+    // Geolocation only works in a secure context (https or localhost).
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      setError(t.geoInsecure);
+      return;
+    }
     if (!navigator.geolocation) {
       setError(t.geoError);
       return;
@@ -110,17 +118,20 @@ export function LocationPromptPanel({ onConfirmed }: Props) {
           setLocation(label);
           await confirm(label);
         } else {
+          // Got coordinates but no readable city — let the user type it in.
           setError(t.geoError);
           setBusy(false);
         }
       },
-      () => {
-        setError(t.geoError);
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) setError(t.geoDenied);
+        else if (err.code === err.TIMEOUT) setError(t.geoTimeout);
+        else setError(t.geoError);
         setBusy(false);
       },
       { timeout: 8000, maximumAge: 60_000 }
     );
-  }, [confirm, t.geoError]);
+  }, [confirm, t.geoError, t.geoDenied, t.geoTimeout, t.geoInsecure]);
 
   return (
     <section className="flex w-full flex-col items-center justify-center px-6 py-6 text-center">

@@ -56,7 +56,7 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ case_id: str
     return NextResponse.json(
       {
         error: 'Invalid signature',
-        hint: `curl -X DELETE -H "X-Caseflow-Signature: $(echo -n '${case_id}' | openssl dgst -sha256 -hmac '$CASEFLOW_DELETE_HMAC_SECRET' | awk '{{print $2}}')" http://localhost:3000/api/cases/${case_id}`,
+        hint: `curl -X DELETE -H "X-Caseflow-Signature: $(echo -n '${case_id}' | openssl dgst -sha256 -hmac '$CASEFLOW_DELETE_HMAC_SECRET' | awk '{{print $2}}')" https://caseflowy.com/api/cases/${case_id}`,
       },
       { status: 401 }
     );

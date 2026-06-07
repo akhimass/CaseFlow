@@ -9,7 +9,7 @@ export function MarketingLayout({ children }: { children: ReactNode }) {
     <div className="bg-background text-foreground min-h-svh">
       <header className="border-border bg-background/95 supports-[backdrop-filter]:bg-background/80 sticky top-0 z-50 border-b backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
-          <Link href="/" className="shrink-0" aria-label="Caseflow home">
+          <Link href="/" className="shrink-0" aria-label="Caseflowy home">
             <Wordmark />
           </Link>
           <div className="flex items-center gap-2">
@@ -27,11 +27,11 @@ export function MarketingLayout({ children }: { children: ReactNode }) {
 
       <footer className="border-border border-t">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-6">
-          <Link href="/" aria-label="Caseflow home">
+          <Link href="/" aria-label="Caseflowy home">
             <Wordmark />
           </Link>
           <p className="text-muted-foreground text-sm">
-            © 2026 Caseflow · Built at YC Conversational AI Hackathon
+            © 2026 Caseflowy · Built at YC Conversational AI Hackathon
           </p>
           <div className="text-muted-foreground flex flex-wrap gap-5 text-sm">
             <Link href="/intake/consent" className="hover:text-foreground">

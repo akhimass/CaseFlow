@@ -36,7 +36,7 @@ export function useAgentErrors(agentName = 'caseflow-agent') {
         (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
       toastAlert({
-        title: 'Aria could not join the call',
+        title: 'The intake specialist could not join the call',
         description: (
           <>
             {reasons.length > 0 ? (
@@ -68,9 +68,9 @@ export function useAgentErrors(agentName = 'caseflow-agent') {
               </p>
             ) : (
               <p className="w-full">
-                The cloud agent may be restarting. Wait 30 seconds and try again. If it keeps failing,
-                check LiveKit Cloud agent status for <code className="text-xs">caseflow-agent</code>
-                .
+                The cloud agent may be restarting. Wait 30 seconds and try again. If it keeps
+                failing, check LiveKit Cloud agent status for{' '}
+                <code className="text-xs">caseflow-agent</code>.
               </p>
             )}
           </>

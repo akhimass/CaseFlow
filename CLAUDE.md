@@ -1,8 +1,8 @@
-# Caseflow — YC Conversational AI Hackathon
+# Caseflowy — YC Conversational AI Hackathon
 
 ## The pitch (one paragraph)
 
-Caseflow is a multilingual video intake agent for personal injury cases. A Spanish- or English-speaking caller video-calls our agent, who runs intake in their language, parses documents they hold up to the camera, retrieves comparable settlements and statute-of-limitations rules live via Moss, catches discrepancies between their verbal account and parsed evidence, then matches them to a firm and books the consultation via an outbound Twilio call to the firm. The firm receives a fully audited case file with a verbal brief — not just a lead.
+Caseflowy is a multilingual video intake agent for personal injury cases. A Spanish- or English-speaking caller video-calls our agent, who runs intake in their language, parses documents they hold up to the camera, retrieves comparable settlements and statute-of-limitations rules live via Moss, catches discrepancies between their verbal account and parsed evidence, then matches them to a firm and books the consultation via an outbound Twilio call to the firm. The firm receives a fully audited case file with a verbal brief — not just a lead.
 
 ## Hackathon context
 

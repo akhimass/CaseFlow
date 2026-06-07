@@ -2,14 +2,14 @@ import Foundation
 import LiveKit
 
 actor TokenService {
-    // Point this at your local dev server or Vercel deployment.
-    // Override via Info.plist key "CASEFLOW_API_URL" or set directly here.
+    // Points at the caseflowy.com production deployment by default.
+    // Override via Info.plist key "CASEFLOW_API_URL" (e.g. http://localhost:3000 for local dev).
     static var baseURL: URL = {
         if let raw = Bundle.main.object(forInfoDictionaryKey: "CASEFLOW_API_URL") as? String,
            let url = URL(string: raw) {
             return url
         }
-        return URL(string: "http://localhost:3000")!
+        return URL(string: "https://caseflowy.com")!
     }()
 
     func fetchConnectionDetails(agentMetadata: [String: String] = [:]) async throws -> ConnectionDetails {

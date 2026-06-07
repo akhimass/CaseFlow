@@ -1,8 +1,8 @@
-# Caseflow — Multilingual PI Video Intake
+# Caseflowy — Multilingual PI Video Intake
 
 **Hackathon spec:** see [CLAUDE.md](./CLAUDE.md) — source of truth for scope, demo flow, and sponsor stack.
 
-Caseflow is a multilingual (Spanish + English) video intake agent for personal injury cases, built for the YC Conversational AI Hackathon on the [LiveKit Moss Hacker Starter](https://github.com/livekit-examples/moss-hacker-starter).
+Caseflowy is a multilingual (Spanish + English) video intake agent for personal injury cases, built for the YC Conversational AI Hackathon on the [LiveKit Moss Hacker Starter](https://github.com/livekit-examples/moss-hacker-starter).
 
 Aria conducts live video intake, parses documents held to camera via Unsiloed, retrieves legal knowledge and comparables via Moss, catches verbal/document discrepancies, scores case strength, matches firms, and closes with a mock Twilio outbound + SMS.
 
@@ -22,7 +22,7 @@ Aria conducts live video intake, parses documents held to camera via Unsiloed, r
 ```
 CaseFlow/
 ├── agent-py/
-│   ├── src/agent.py           # Aria agent + Caseflow tools
+│   ├── src/agent.py           # Aria agent + Caseflowy tools
 │   ├── src/case_tools.py      # Unsiloed, scoring, matching
 │   ├── src/case_broadcast.py
 │   ├── src/sol_lookup.py

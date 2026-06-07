@@ -107,7 +107,7 @@ export default function TunePage() {
   if (process.env.NODE_ENV === 'production') {
     return (
       <main className="mx-auto max-w-3xl p-8">
-        <h1 className="text-2xl font-semibold">Caseflow Voice Tuning</h1>
+        <h1 className="text-2xl font-semibold">Caseflowy Voice Tuning</h1>
         <p className="text-muted-foreground mt-2">Unavailable in production.</p>
       </main>
     );

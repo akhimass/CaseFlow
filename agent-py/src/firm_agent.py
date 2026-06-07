@@ -40,6 +40,7 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from moss import MossClient
 
 from case_broadcast import broadcast
+from gateway import GatewayMetadata
 from gateway import chat as gateway_chat
 from llm_client import build_dialogue_llm
 from minimax_voice import (
@@ -47,6 +48,9 @@ from minimax_voice import (
     VoiceSessionState,
     build_caseflow_voice,
 )
+from pii_redaction import RedactionSession
+from privacy_context import bind_redaction_session
+from redacting_llm import RedactingLLM
 from retrieval import Retriever
 from video_capture import parse_data_message
 
@@ -62,7 +66,7 @@ BRIEFING_MODEL = os.getenv(
 
 FIRM_COUNSEL_INSTRUCTIONS = textwrap.dedent(
     """\
-    You are Caseflow Counsel, the firm-side briefing agent for a personal-injury
+    You are Caseflowy Counsel, the firm-side briefing agent for a personal-injury
     law firm. You are speaking out loud to an attorney who is reviewing a new
     matched lead on their dashboard. Your job is to brief them like a sharp
     paralegal: confident, concise, and useful.
@@ -205,7 +209,7 @@ def _deterministic_segments(ctx: dict[str, Any]) -> list[dict[str, str]]:
     if injuries:
         overview += f" Reported injuries include {injuries}."
     if strength:
-        overview += f" Caseflow scored the case strength at {strength} out of 100."
+        overview += f" Caseflowy scored the case strength at {strength} out of 100."
     segs["overview"] = overview
 
     c = ctx.get("consistency") or {}
@@ -262,7 +266,7 @@ async def generate_briefing_segments(record: dict[str, Any]) -> list[dict[str, s
     fallback = _deterministic_segments(ctx)
 
     system = (
-        "You are Caseflow Counsel briefing an attorney out loud about a new "
+        "You are Caseflowy Counsel briefing an attorney out loud about a new "
         "personal-injury lead. Convert the structured case context into a smooth "
         "spoken briefing. Write one to three sentences per requested section. "
         "Plain spoken English only: no markdown, no bullets, no citation markers, "
@@ -287,6 +291,11 @@ async def generate_briefing_segments(record: dict[str, Any]) -> list[dict[str, s
             ],
             temperature=0.3,
             timeout_s=18.0,
+            metadata=GatewayMetadata(
+                case_id=str(record.get("case_id") or ""),
+                firm_id=str(record.get("firm_id") or ""),
+                mode="firm_briefing",
+            ),
         )
         content = (response.content or "").strip()
         # Tolerate ```json fences.
@@ -328,10 +337,21 @@ async def generate_briefing_segments(record: dict[str, Any]) -> list[dict[str, s
 class FirmCounselAssistant(Agent):
     """Male-voiced briefing agent with Moss-backed Q&A tools for the firm."""
 
-    def __init__(self, *, room, case_id: str, record: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        *,
+        room,
+        case_id: str,
+        record: dict[str, Any],
+        redaction_session: RedactionSession,
+    ) -> None:
+        # Redact PII before it reaches any LLM provider; the streamed reply is
+        # un-redacted again so the (authorized) attorney hears real names. Mirrors
+        # the intake agent's posture so the firm path is held to the same bar.
+        inner_llm = build_dialogue_llm(case_id=case_id)
         super().__init__(
             instructions=_instructions_with_context(record),
-            llm=build_dialogue_llm(case_id=case_id),
+            llm=RedactingLLM(inner=inner_llm, session=redaction_session),
         )
         self._room = room
         self._case_id = case_id
@@ -437,6 +457,12 @@ async def run_firm_briefing_session(
     ctx.log_context_fields = {"room": ctx.room.name, "mode": "firm_briefing"}
     logger.info("CASEFLOW_FIRM_BRIEF start case_id=%s firm_id=%s", case_id, firm_id)
 
+    # Bind a fresh per-session redactor BEFORE any gateway call so briefing
+    # generation (gateway_chat) and the dialogue LLM share one consistent map and
+    # never inherit a stale session from a prior intake in this worker process.
+    redaction_session = RedactionSession()
+    bind_redaction_session(redaction_session)
+
     record = await fetch_case_record(case_id)
 
     voice_state = _FirmVoiceState()
@@ -451,7 +477,12 @@ async def run_firm_briefing_session(
         preemptive_generation=True,
     )
 
-    assistant = FirmCounselAssistant(room=ctx.room, case_id=case_id, record=record)
+    assistant = FirmCounselAssistant(
+        room=ctx.room,
+        case_id=case_id,
+        record=record,
+        redaction_session=redaction_session,
+    )
 
     narration_lock = asyncio.Lock()
 

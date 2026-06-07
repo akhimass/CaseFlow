@@ -13,7 +13,7 @@ export default function PrivacyPage() {
     <div className="bg-background flex min-h-svh flex-col items-center px-6 py-12">
       <div className="border-border bg-card w-full max-w-2xl rounded-xl border p-8 shadow-sm">
         <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
-          Caseflow
+          Caseflowy
         </p>
         <h1 className="mt-2 text-2xl font-semibold">{t.title}</h1>
         <p className="text-muted-foreground mt-4 text-sm leading-relaxed">{t.summary}</p>

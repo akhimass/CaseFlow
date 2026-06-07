@@ -1,0 +1,38 @@
+# Caseflow gateway guardrails — org-wide PII/PHI enforcement at the front door.
+#
+# This is the GitOps form (`tfy apply -f guardrails.yaml`). Prerequisite: in
+# AI Gateway -> Controls -> Guardrails, create a built-in "PII / PHI Detection"
+# guardrail (Azure AI Language, mutate/redact mode) and add it to a group so its
+# FQN is e.g. "caseflow/pii-detection". Then this rule attaches it to every
+# Caseflow request.
+#
+# Why this matters: it is a SECOND, centrally-enforced layer of PII redaction on
+# top of the app-side RedactingLLM — so even a code path that forgets to redact
+# is caught at the gateway. Exactly the defense-in-depth a legal product wants.
+#
+# Note on streaming: TrueFoundry output guardrails do NOT run on streamed
+# responses. Live dialogue streams, so it gets INPUT redaction here (plus app
+# un-redaction); the reasoning virtual model is non-streamed, so it gets both.
+name: caseflow-guardrails
+type: gateway-guardrails-config
+rules:
+  - id: caseflow-pii-everywhere
+    when:
+      target:
+        operator: or
+        conditions:
+          model:
+            condition: in
+            values:
+              - caseflow/dialogue
+              - caseflow/reasoning
+      # Belt-and-suspenders: also match by the metadata we already send on every
+      # request (X-TFY-METADATA includes "application": "caseflow").
+      metadata:
+        application: caseflow
+    llm_input_guardrails:
+      - caseflow/pii-detection
+    llm_output_guardrails:
+      - caseflow/pii-detection
+    mcp_tool_pre_invoke_guardrails: []
+    mcp_tool_post_invoke_guardrails: []

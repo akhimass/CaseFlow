@@ -1,10 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ConnectionState } from 'livekit-client';
 import { AnimatePresence, motion } from 'motion/react';
-import { useLocalParticipant, useVoiceAssistant } from '@livekit/components-react';
+import {
+  useConnectionState,
+  useLocalParticipant,
+  useRoomContext,
+  useVoiceAssistant,
+} from '@livekit/components-react';
 import {
   ArrowClockwiseIcon,
   ArrowLeftIcon,
@@ -199,6 +204,9 @@ export function BriefingRoom({
   onTogglePause: () => void;
 }) {
   const router = useRouter();
+  const room = useRoomContext();
+  const connectionState = useConnectionState();
+  const connected = connectionState === ConnectionState.Connected;
   const { state: agentState } = useVoiceAssistant();
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
   const { briefing, replay } = useFirmBriefing(caseId);
@@ -212,6 +220,47 @@ export function BriefingRoom({
       void localParticipant.setMicrophoneEnabled(false);
     }
   }, [localParticipant]);
+
+  // Self-heal a stuck briefing. The agent auto-narrates the moment it connects,
+  // but if those reliable data packets are sent before this client attaches its
+  // DataReceived listener, LiveKit drops them and the briefing sits idle forever.
+  // Once we're connected and listening, if nothing has arrived shortly, ask the
+  // agent to (re)narrate — this fires while we're guaranteed to be listening.
+  const recoveryRequested = useRef(false);
+  useEffect(() => {
+    if (!connected) return;
+    if (briefing.status !== 'idle' || briefing.total > 0 || briefing.caption) return;
+    if (recoveryRequested.current) return;
+    const timer = setTimeout(() => {
+      recoveryRequested.current = true;
+      void replay();
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [connected, briefing.status, briefing.total, briefing.caption, replay]);
+
+  // After a longer grace period with no narration, surface an honest, actionable
+  // message instead of an indefinite "Preparing your briefing…".
+  const [stalled, setStalled] = useState(false);
+  useEffect(() => {
+    if (briefing.caption || briefing.status === 'complete') {
+      setStalled(false);
+      return;
+    }
+    const timer = setTimeout(() => setStalled(true), 14000);
+    return () => clearTimeout(timer);
+  }, [briefing.caption, briefing.status]);
+
+  const leave = useCallback(() => {
+    recoveryRequested.current = true; // suppress any pending recovery on the way out
+    void room?.disconnect();
+    router.push('/firm');
+  }, [room, router]);
+
+  const handleReplay = useCallback(() => {
+    recoveryRequested.current = true;
+    setStalled(false);
+    void replay();
+  }, [replay]);
 
   const sections = useMemo(() => SECTIONS.filter((s) => s.available(record)), [record]);
   const title = fieldText(record, 'caller_id', 'case_id') ?? 'New lead';
@@ -230,10 +279,8 @@ export function BriefingRoom({
       <header className="border-border bg-background/80 sticky top-0 z-10 border-b px-6 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/firm">
-                <ArrowLeftIcon weight="bold" /> Back
-              </Link>
+            <Button type="button" variant="ghost" size="sm" onClick={leave}>
+              <ArrowLeftIcon weight="bold" /> Back
             </Button>
             <div>
               <div className="font-semibold capitalize">{title}</div>
@@ -253,7 +300,7 @@ export function BriefingRoom({
                     : 'bg-emerald-500'
               )}
             />
-            Caseflow Counsel · {firmName ?? 'firm'}
+            Caseflowy Counsel · {firmName ?? 'firm'}
           </div>
         </div>
       </header>
@@ -280,10 +327,12 @@ export function BriefingRoom({
             >
               {briefing.caption ??
                 (connecting
-                  ? 'Connecting to Caseflow Counsel…'
+                  ? 'Connecting to Caseflowy Counsel…'
                   : briefing.status === 'complete'
                     ? 'Briefing complete. Ask me anything about this case.'
-                    : 'Preparing your briefing…')}
+                    : stalled
+                      ? 'Couldn’t reach Caseflowy Counsel. Tap “Replay briefing”, or go back to your leads.'
+                      : 'Preparing your briefing…')}
             </motion.p>
           </AnimatePresence>
         </div>
@@ -342,16 +391,17 @@ export function BriefingRoom({
       </main>
 
       {/* Control bar */}
-      <div className="border-border bg-background/90 fixed inset-x-0 bottom-0 z-20 border-t backdrop-blur">
+      <div className="border-border bg-background/90 pointer-events-auto fixed inset-x-0 bottom-0 z-30 border-t pb-[env(safe-area-inset-bottom)] backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-center gap-2 px-6 py-3">
-          <Button variant="outline" size="sm" onClick={onTogglePause}>
+          <Button type="button" variant="outline" size="sm" onClick={onTogglePause}>
             {paused ? <PlayIcon weight="fill" /> : <PauseIcon weight="fill" />}
             {paused ? 'Resume' : 'Pause'}
           </Button>
-          <Button variant="outline" size="sm" onClick={replay}>
+          <Button type="button" variant="outline" size="sm" onClick={handleReplay}>
             <ArrowClockwiseIcon weight="bold" /> Replay briefing
           </Button>
           <Button
+            type="button"
             variant={isMicrophoneEnabled ? 'default' : 'outline'}
             size="sm"
             onClick={() => localParticipant?.setMicrophoneEnabled(!isMicrophoneEnabled)}
@@ -364,10 +414,11 @@ export function BriefingRoom({
             {isMicrophoneEnabled ? 'Listening' : 'Ask a question'}
           </Button>
           <Button
+            type="button"
             variant="ghost"
             size="sm"
             className="text-red-600 hover:text-red-700"
-            onClick={() => router.push('/firm')}
+            onClick={leave}
           >
             <PhoneDisconnectIcon weight="bold" /> End
           </Button>

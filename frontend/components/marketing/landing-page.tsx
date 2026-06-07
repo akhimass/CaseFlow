@@ -73,7 +73,7 @@ export function LandingPage() {
       <section className="border-border bg-muted/20 border-y px-6 py-10">
         <blockquote className="mx-auto max-w-3xl text-center">
           <p className="text-xl leading-relaxed font-medium md:text-2xl">
-            &ldquo;Caseflow caught the fault discrepancy live — in Spanish — parsed Maria&rsquo;s
+            &ldquo;Caseflowy caught the fault discrepancy live — in Spanish — parsed Maria&rsquo;s
             police report and ER discharge, and matched her to Pacific Heights Injury Law before she
             hung up.&rdquo;
           </p>

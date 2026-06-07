@@ -58,7 +58,7 @@ export default function ConsentPage() {
               <>
                 I understand this intake will be recorded and processed under{' '}
                 <Link href="/privacy" className="text-primary underline underline-offset-2">
-                  Caseflow&apos;s privacy controls
+                  Caseflowy&apos;s privacy controls
                 </Link>
                 .
               </>
@@ -66,7 +66,7 @@ export default function ConsentPage() {
               <>
                 Entiendo que esta intake será grabada y procesada bajo los{' '}
                 <Link href="/privacy" className="text-primary underline underline-offset-2">
-                  controles de privacidad de Caseflow
+                  controles de privacidad de Caseflowy
                 </Link>
                 .
               </>

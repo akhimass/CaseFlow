@@ -6,9 +6,8 @@ import json
 import logging
 from typing import Any
 
-from bedrock_llm import bedrock_chat_openai_compat, bedrock_configured, parse_json_object
-from gateway import GATEWAY_MODEL, GatewayMetadata, chat, openai_configured
-from openai_llm import openai_chat
+from bedrock_llm import parse_json_object
+from gateway import GATEWAY_MODEL, GatewayMetadata, chat
 
 logger = logging.getLogger("document_auditor")
 
@@ -48,26 +47,26 @@ async def audit_document(
     }
     messages = [
         {"role": "system", "content": AUDIT_PROMPT},
-        {"role": "user", "content": json.dumps(payload, default=str, ensure_ascii=False)},
+        {
+            "role": "user",
+            "content": json.dumps(payload, default=str, ensure_ascii=False),
+        },
     ]
 
     raw = ""
     try:
-        if openai_configured():
-            data = await openai_chat(messages, model=GATEWAY_MODEL, temperature=0.1, timeout_s=30)
-            raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-        elif bedrock_configured():
-            result = await bedrock_chat_openai_compat(messages, temperature=0.1, timeout_s=30)
-            raw = result.get("content", "")
-        else:
-            response = await chat(
-                GATEWAY_MODEL,
-                messages,
-                temperature=0.1,
-                metadata=GatewayMetadata(case_id=case_id, caller_id=caller_id),
-                allow_failover=True,
-            )
-            raw = response.content
+        # Always route through the gateway: it owns provider selection + failover
+        # AND redacts PII (parsed police reports / ER discharges are PII-dense)
+        # before any provider sees it, then un-redacts the reply.
+        response = await chat(
+            GATEWAY_MODEL,
+            messages,
+            temperature=0.1,
+            metadata=GatewayMetadata(case_id=case_id, caller_id=caller_id),
+            allow_failover=True,
+            timeout_s=30,
+        )
+        raw = response.content
     except Exception:
         logger.exception("Document audit LLM failed for %s", doc_type)
         return {"audit_status": "pending", "confidence": 0, "flagged_claims": []}

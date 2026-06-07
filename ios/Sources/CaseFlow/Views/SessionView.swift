@@ -6,10 +6,10 @@ import UIKit
 
 struct SessionView: View {
     @ObservedObject var manager: LiveKitManager
+    @EnvironmentObject var appState: AppState
     let onEnd: () -> Void
 
     @State private var showIntelligencePanel = false
-    @State private var isCameraOn = false
     @State private var docCaptureActive = false
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var selectedPhotoImage: UIImage?
@@ -27,7 +27,7 @@ struct SessionView: View {
                         auraPanel(width: geo.size.width)
 
                         // PiP: local camera preview
-                        if isCameraOn || selectedPhotoImage != nil {
+                        if manager.cameraEnabled || selectedPhotoImage != nil {
                             previewTile
                                 .padding(16)
                         }
@@ -60,7 +60,7 @@ struct SessionView: View {
             }
             .ignoresSafeArea(edges: .bottom)
         }
-        .task { await manager.connect() }
+        .task { await manager.connect(agentMetadata: appState.buildAgentMetadata()) }
         .onDisappear { Task { await manager.disconnect() } }
         .onChange(of: selectedPhotoItem) { _, newItem in
             guard let newItem else { return }
@@ -122,10 +122,22 @@ struct SessionView: View {
             if showIntelligencePanel {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
+                        if let update = manager.latestCaseUpdate {
+                            CaseStatusView(update: update)
+                        }
+
                         MossResultsView(events: manager.mossEvents)
 
                         if !manager.documentEvents.isEmpty {
                             DocumentEventsView(events: manager.documentEvents)
+                        }
+
+                        if manager.mossEvents.isEmpty
+                            && manager.documentEvents.isEmpty
+                            && manager.latestCaseUpdate == nil {
+                            Text("Knowledge and case details will appear here as Aria works.")
+                                .font(.cfCaption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     .padding(16)
@@ -149,25 +161,24 @@ struct SessionView: View {
 
             // Camera toggle
             ControlButton(
-                icon: isCameraOn ? "video.fill" : "video.slash.fill",
-                label: isCameraOn ? "Camera" : "Camera",
-                isActive: isCameraOn,
+                icon: manager.cameraEnabled ? "video.fill" : "video.slash.fill",
+                label: "Camera",
+                isActive: manager.cameraEnabled,
                 color: CaseFlowTheme.auraAccent(colorScheme)
             ) {
-                isCameraOn.toggle()
-                Task { try? await manager.setCamera(enabled: isCameraOn) }
+                let next = !manager.cameraEnabled
+                Task { try? await manager.setCamera(enabled: next) }
             }
 
             // Doc capture
             ControlButton(
                 icon: "doc.viewfinder",
                 label: "Doc",
-                isActive: docCaptureActive,
+                isActive: docCaptureActive || manager.capturingDocument,
                 color: .orange
             ) {
                 docCaptureActive.toggle()
-                if !isCameraOn && docCaptureActive {
-                    isCameraOn = true
+                if !manager.cameraEnabled && docCaptureActive {
                     Task { try? await manager.setCamera(enabled: true) }
                 }
             }
@@ -213,7 +224,7 @@ struct SessionView: View {
                     .frame(width: 100, height: 140)
             }
 
-            DocumentCaptureOverlay(isActive: docCaptureActive || selectedPhotoImage != nil)
+            DocumentCaptureOverlay(isActive: docCaptureActive || manager.capturingDocument || selectedPhotoImage != nil)
         }
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(
@@ -302,6 +313,45 @@ private struct ControlButton: View {
     }
 }
 
+private struct CaseStatusView: View {
+    let update: CaseUpdate
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "doc.badge.gearshape")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(CaseFlowTheme.auraAccent(colorScheme))
+                Text("Case Update")
+                    .font(.cfLabel)
+                Spacer()
+                Text(update.event.replacingOccurrences(of: "_", with: " ").capitalized)
+                    .font(.cfCaption)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(CaseFlowTheme.auraAccent(colorScheme).opacity(0.15), in: Capsule())
+                    .foregroundStyle(CaseFlowTheme.auraAccent(colorScheme))
+            }
+            ForEach(Array(update.fields.sorted(by: { $0.key < $1.key }).prefix(5)), id: \.key) { key, value in
+                HStack(alignment: .top) {
+                    Text(key.replacingOccurrences(of: "_", with: " "))
+                        .font(.cfCaption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(value)
+                        .font(.cfCaption)
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(2)
+                }
+            }
+        }
+        .padding(10)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
 private struct DocumentEventsView: View {
     let events: [DocumentParseEvent]
 
@@ -316,9 +366,13 @@ private struct DocumentEventsView: View {
             }
             ForEach(events.prefix(3)) { event in
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(event.docType.replacingOccurrences(of: "_", with: " ").capitalized)
-                        .font(.cfLabel)
-                        .foregroundStyle(.primary)
+                    HStack(spacing: 6) {
+                        Text(event.docType.replacingOccurrences(of: "_", with: " ").capitalized)
+                            .font(.cfLabel)
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        statusBadge(for: event.status)
+                    }
                     ForEach(Array(event.fields.prefix(4)), id: \.key) { key, value in
                         HStack {
                             Text(key.replacingOccurrences(of: "_", with: " "))
@@ -328,11 +382,43 @@ private struct DocumentEventsView: View {
                             Text(value)
                                 .font(.cfCaption)
                                 .foregroundStyle(.primary)
+                                .multilineTextAlignment(.trailing)
                         }
                     }
                 }
                 .padding(10)
                 .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func statusBadge(for status: DocumentParseStatus) -> some View {
+        switch status {
+        case .parsing:
+            HStack(spacing: 4) {
+                ProgressView().scaleEffect(0.6)
+                Text("Parsing…")
+                    .font(.cfCaption)
+                    .foregroundStyle(.secondary)
+            }
+        case .parsed:
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.green)
+                Text("Parsed")
+                    .font(.cfCaption)
+                    .foregroundStyle(.green)
+            }
+        case .error:
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                Text("Error")
+                    .font(.cfCaption)
+                    .foregroundStyle(.red)
             }
         }
     }

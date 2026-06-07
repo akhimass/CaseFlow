@@ -73,8 +73,8 @@ async function ensureCameraEnabled(
 
   toast.message(isEs ? 'Encienda su cámara' : 'Turn on your camera', {
     description: isEs
-      ? `Aria necesita ver su ${label}. Toque el ícono de cámara abajo o permita el acceso.`
-      : `Aria needs to see your ${label}. Tap the camera button below or allow access.`,
+      ? `El especialista necesita ver su ${label}. Toque el ícono de cámara abajo o permita el acceso.`
+      : `The specialist needs to see your ${label}. Tap the camera button below or allow access.`,
     duration: 8000,
   });
 

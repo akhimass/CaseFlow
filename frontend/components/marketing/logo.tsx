@@ -54,10 +54,10 @@ export function LogoMark({ className }: IconProps) {
 /** Icon + caseflow wordmark for nav and footer. */
 export function Wordmark({ className }: { className?: string }) {
   return (
-    <span className={cn('inline-flex items-center gap-2.5', className)} aria-label="Caseflow">
+    <span className={cn('inline-flex items-center gap-2.5', className)} aria-label="Caseflowy">
       <CaseflowIcon className="size-9 sm:size-10" />
       <span className="text-[1.25rem] leading-none font-semibold tracking-tight lowercase sm:text-[1.4rem]">
-        caseflow
+        caseflowy
       </span>
     </span>
   );

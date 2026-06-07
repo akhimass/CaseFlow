@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { RoomEvent } from 'livekit-client';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 
@@ -105,7 +105,7 @@ export function useFirmBriefing(caseId: string) {
     };
   }, [room, caseId]);
 
-  const replay = async () => {
+  const replay = useCallback(async () => {
     if (!localParticipant) return;
     setState({ ...INITIAL, status: 'speaking' });
     const message = textEncoder.encode(
@@ -116,7 +116,7 @@ export function useFirmBriefing(caseId: string) {
     } catch {
       // best-effort
     }
-  };
+  }, [localParticipant]);
 
   return { briefing: state, replay };
 }

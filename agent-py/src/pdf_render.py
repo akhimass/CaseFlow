@@ -12,7 +12,7 @@ PDF_CSS = """
   size: letter;
   margin: 1in;
   @bottom-center {
-    content: "Caseflow · Page " counter(page);
+    content: "Caseflowy · Page " counter(page);
     font-size: 9pt;
     color: #666;
   }

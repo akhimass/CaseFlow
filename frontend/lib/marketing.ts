@@ -20,7 +20,7 @@ export const FEATURES = [
   {
     icon: Globe,
     title: 'Spanish or English',
-    body: 'Tell Aria what happened in the language you are most comfortable with — she stays with you for the whole conversation.',
+    body: 'Tell us what happened in the language you are most comfortable with — your intake specialist stays with you for the whole conversation.',
   },
   {
     icon: Check,
@@ -111,4 +111,4 @@ export const MOCK_ROWS = [
 ] as const;
 
 export const CTA_NOTE =
-  'Injured in a car crash, slip and fall, or workplace accident? Start your case on live video — Aria guides you step by step and helps connect you with a firm that fits.';
+  'Injured in a car crash, slip and fall, or workplace accident? Start your case on live video — our specialist guides you step by step and helps connect you with a firm that fits.';

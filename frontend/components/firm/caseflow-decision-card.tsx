@@ -105,7 +105,7 @@ export function CaseflowDecisionCard({ record }: { record: CaseRecord }) {
       <section className="bg-card rounded-[7px] p-4">
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold tracking-wide">Caseflow Decision</h3>
+            <h3 className="text-sm font-semibold tracking-wide">Caseflowy Decision</h3>
             {recentlyUpdated || (status === 'synthesizing' && hasBody) ? (
               <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-600">
                 ↑ updated

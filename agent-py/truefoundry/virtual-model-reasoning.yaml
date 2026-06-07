@@ -1,0 +1,28 @@
+# Caseflow reasoning virtual model — non-dialogue gateway calls.
+#
+# Used by gateway.chat() for consistency auditing, slot extraction, case
+# synthesis, validation, the firm briefing script, and (most importantly for
+# privacy) the document auditor — which sends PII-dense parsed police reports and
+# ER discharges. The app references this as "caseflow/reasoning" via
+# TFY_REASONING_MODEL. These calls are NON-streamed, so BOTH input and output
+# guardrails run on them.
+#
+# Replace `target:` values with the catalog model ids in your gateway.
+routing_config:
+  type: priority-based-routing
+  load_balance_targets:
+    - target: openai-main/gpt-4.1-mini
+      priority: 0
+      retry_config:
+        attempts: 2
+        delay: 200
+        on_status_codes: ["429", "500", "502", "503"]
+      fallback_status_codes: ["401", "403", "404", "429", "500", "502", "503"]
+      fallback_candidate: true
+    - target: bedrock/us.amazon.nova-lite-v1:0
+      priority: 1
+      fallback_candidate: true
+    # Optional higher-accuracy tier for hard audits; raise its priority to use.
+    - target: openai-main/gpt-4.1
+      priority: 2
+      fallback_candidate: true

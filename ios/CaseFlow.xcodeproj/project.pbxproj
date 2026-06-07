@@ -20,6 +20,7 @@
 		CC000000000000000000000A /* TranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD000000000000000000000A /* TranscriptView.swift */; };
 		CD000000000000000000000A /* LiveKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE000000000000000000000A /* LiveKitManager.swift */; };
 		CE000000000000000000000A /* TokenService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF000000000000000000000A /* TokenService.swift */; };
+		CE100000000000000000000A /* CameraFrameCapturer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF100000000000000000000A /* CameraFrameCapturer.swift */; };
 		CF000000000000000000000A /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0000000000000000000000A /* Models.swift */; };
 		D0000000000000000000000A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1000000000000000000000A /* Theme.swift */; };
 		D2000000000000000000000A /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = AF000000000000000000000A /* LiveKit */; };
@@ -40,6 +41,7 @@
 		BD000000000000000000000A /* TranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TranscriptView.swift; path = Sources/CaseFlow/Components/TranscriptView.swift; sourceTree = SOURCE_ROOT; };
 		BE000000000000000000000A /* LiveKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveKitManager.swift; path = Sources/CaseFlow/Services/LiveKitManager.swift; sourceTree = SOURCE_ROOT; };
 		BF000000000000000000000A /* TokenService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TokenService.swift; path = Sources/CaseFlow/Services/TokenService.swift; sourceTree = SOURCE_ROOT; };
+		BF100000000000000000000A /* CameraFrameCapturer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CameraFrameCapturer.swift; path = Sources/CaseFlow/Services/CameraFrameCapturer.swift; sourceTree = SOURCE_ROOT; };
 		C0000000000000000000000A /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Models.swift; path = Sources/CaseFlow/Models/Models.swift; sourceTree = SOURCE_ROOT; };
 		C1000000000000000000000A /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Theme.swift; path = Sources/CaseFlow/Theme/Theme.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -122,6 +124,7 @@
 			children = (
 				BE000000000000000000000A /* LiveKitManager.swift */,
 				BF000000000000000000000A /* TokenService.swift */,
+				BF100000000000000000000A /* CameraFrameCapturer.swift */,
 			);
 			name = Services;
 			sourceTree = "<group>";
@@ -229,6 +232,7 @@
 				CC000000000000000000000A /* TranscriptView.swift in Sources */,
 				CD000000000000000000000A /* LiveKitManager.swift in Sources */,
 				CE000000000000000000000A /* TokenService.swift in Sources */,
+				CE100000000000000000000A /* CameraFrameCapturer.swift in Sources */,
 				CF000000000000000000000A /* Models.swift in Sources */,
 				D0000000000000000000000A /* Theme.swift in Sources */,
 			);

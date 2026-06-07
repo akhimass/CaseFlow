@@ -111,9 +111,7 @@ export default function FirmPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
   const [autoBrief, setAutoBrief] = useState(
-    () =>
-      typeof window !== 'undefined' &&
-      localStorage.getItem('caseflow_auto_brief') === 'on'
+    () => typeof window !== 'undefined' && localStorage.getItem('caseflow_auto_brief') === 'on'
   );
 
   useEffect(() => {

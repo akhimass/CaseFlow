@@ -28,8 +28,8 @@ function summaryLabel(record: CaseRecord): string | null {
   const id = String(record.case_id ?? '');
   const docs = (record.documents as Array<{ doc_type?: string }> | undefined) ?? [];
   if (docs.length > 0) {
-    const slug = docs[0]?.doc_type ?? 'intake';
-    return `intake-${id.slice(0, 8)}.pdf`;
+    const docType = docs[0]?.doc_type ?? 'intake';
+    return `${docType}-${id.slice(0, 8)}.pdf`;
   }
   if (record.verbal_summary || record.firm_brief) {
     return `intake-${id.slice(0, 8)}.pdf`;

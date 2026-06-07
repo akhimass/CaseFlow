@@ -30,6 +30,10 @@ def openai_direct_configured() -> bool:
     return os.getenv("OPENAI_DIRECT_API_KEY", "").strip().startswith("sk-")
 
 
+def minimax_llm_configured() -> bool:
+    return bool(os.getenv("MINIMAX_API_KEY", "").strip())
+
+
 def livekit_inference_configured() -> bool:
     key = _get_env("LIVEKIT_INFERENCE_API_KEY", "LIVEKIT_API_KEY")
     secret = _get_env("LIVEKIT_INFERENCE_API_SECRET", "LIVEKIT_API_SECRET")
@@ -41,6 +45,29 @@ def _livekit_inference_llm() -> llm.LLM | None:
         return None
     return inference.LLM(
         model=_get_env("LIVEKIT_INFERENCE_MODEL", default="openai/gpt-4.1-mini")
+    )
+
+
+def _minimax_llm(
+    *, case_id: str | None, temperature: float, max_tokens: int
+) -> llm.LLM | None:
+    """MiniMax LLM via its OpenAI-compatible endpoint (same key as MiniMax TTS).
+
+    Defaults to MiniMax-Text-01 — it supports tool calling and, unlike the M-series
+    reasoning models, does not emit ``<think>`` tokens that would be spoken by TTS.
+    """
+    key = os.getenv("MINIMAX_API_KEY", "").strip()
+    if not key:
+        return None
+    return OpenAIChatLLM(
+        api_key=key,
+        model=os.getenv("MINIMAX_LLM_MODEL", "MiniMax-Text-01"),
+        provider="minimax",
+        default_temperature=temperature,
+        case_id=case_id,
+        max_tokens=max_tokens,
+        label="minimax",
+        base_url=os.getenv("MINIMAX_LLM_BASE_URL", "https://api.minimax.io/v1"),
     )
 
 
@@ -450,33 +477,51 @@ class TrueFoundryLLM(llm.LLM):
                 base_url="https://api.openai.com/v1",
             )
 
-        # Provider ordering. DIALOGUE_PRIMARY=bedrock (default) puts Bedrock first
-        # to avoid OpenAI free-tier rate limits. Set to "openai" once the org has
-        # a payment method to prefer TrueFoundry virtual model again.
+        # MiniMax LLM (OpenAI-compatible, supports tool calling) using the same
+        # key as MiniMax TTS. MiniMax-Text-01 is the default: no <think> reasoning
+        # tokens to leak into speech, fast, and the user's key already works — so
+        # it's the best dialogue primary, sidestepping the OpenAI free-tier cap.
+        minimax_llm = _minimax_llm(
+            case_id=case_id,
+            temperature=self._primary_temperature,
+            max_tokens=self._max_tokens,
+        )
         bedrock_llm: llm.LLM | None = (
             BedrockLLM(temperature=self._primary_temperature, max_tokens=self._max_tokens)
             if bedrock_configured()
             else None
         )
-        bedrock_first = (
-            os.getenv("DIALOGUE_PRIMARY", "bedrock").strip().lower() == "bedrock"
-            and bedrock_llm is not None
-        )
         livekit_llm = _livekit_inference_llm()
 
+        # Build the failover chain, honoring DIALOGUE_PRIMARY for the first slot.
+        # OpenAI is daily-capped on the free tier (credits don't lift it), so the
+        # default primary is MiniMax (works + tool calls), then Bedrock, then the
+        # OpenAI paths once the org has a payment method. Set DIALOGUE_PRIMARY to
+        # minimax | bedrock | openai | truefoundry to change the preferred provider.
+        by_pref = {
+            "minimax": minimax_llm,
+            "bedrock": bedrock_llm,
+            "openai": direct_llm,
+            "openai-direct": direct_llm,
+            "truefoundry": self._primary_llm,
+        }
+        primary_pref = os.getenv("DIALOGUE_PRIMARY", "minimax").strip().lower()
 
         chain: list[llm.LLM] = []
-        if bedrock_first:
-            chain.append(bedrock_llm)  # type: ignore[arg-type]
-        if direct_llm is not None:
-            chain.append(direct_llm)
-        chain.append(self._primary_llm)
+
+        def _add(candidate: llm.LLM | None) -> None:
+            if candidate is not None and candidate not in chain:
+                chain.append(candidate)
+
+        _add(by_pref.get(primary_pref))
+        # Reliability-ordered remainder (deduped against the preferred primary).
+        _add(minimax_llm)
+        _add(bedrock_llm)
+        _add(direct_llm)
+        _add(self._primary_llm)
         if self._fallback_llm is not self._primary_llm:
-            chain.append(self._fallback_llm)
-        if livekit_llm is not None:
-            chain.append(livekit_llm)
-        if bedrock_llm is not None and not bedrock_first:
-            chain.append(bedrock_llm)
+            _add(self._fallback_llm)
+        _add(livekit_llm)
 
         self._router = CaseflowFallbackAdapter(
             chain,

@@ -159,6 +159,35 @@ function buildCase(c: CaseInput): Json {
     },
     verbal_summary: c.verbal_summary,
     firm_brief: c.firm_brief,
+    // Generated case-file PDFs — real artifacts written to S3 at
+    // {case_id}/docs/{doc_type}.{md,pdf} and grounded in this case's stored
+    // evidence; the firm Documents panel previews/downloads them via presigned URL.
+    generated_documents: [
+      {
+        doc_type: 'intake_summary',
+        title: 'Intake Summary',
+        audit_status: 'verified',
+        audit_confidence: 0.94,
+        page_count: 2,
+        generated_at: new Date((T + 80) * 1000).toISOString(),
+      },
+      {
+        doc_type: 'demand_letter',
+        title: 'Demand Letter Draft',
+        audit_status: 'verified',
+        audit_confidence: 0.92,
+        page_count: 2,
+        generated_at: new Date((T + 95) * 1000).toISOString(),
+      },
+      {
+        doc_type: 'action_sheet',
+        title: '24-Hour Action Sheet',
+        audit_status: 'verified',
+        audit_confidence: 0.95,
+        page_count: 1,
+        generated_at: new Date((T + 100) * 1000).toISOString(),
+      },
+    ],
     ...(c.documents
       ? {
           documents: c.documents,

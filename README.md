@@ -64,6 +64,11 @@ retrieval as the core, not an afterthought.
 6. **Valuation + match.** Economic + non-economic value anchored to comparable
    settlements and discounted for liability, then matched to a firm by jurisdiction,
    language, severity, and specialty.
+7. **Generated case file (PDF).** The intake is compiled into lawyer/paralegal-ready
+   PDFs — an Intake Summary, a Demand Letter draft, and a 24-hour Action Sheet —
+   each grounded in the case's own S3 artifacts (transcript, parsed documents,
+   retrieved law and comparables), independently audited, and downloadable from the
+   firm dashboard. The firm receives a case file, not a lead.
 
 ## Demo (Maria Delgado)
 
@@ -148,13 +153,18 @@ over our app-side redaction. A dev metrics view surfaces the real audit trail �
 the full model fleet by provider, latency, and failovers — so model usage is
 observable, not a black box.
 
-**AWS** — Case artifacts (transcripts, parsed docs, audits, match results) land in
-tiered S3 buckets with KMS encryption, separating sensitive content from
-operational data. AWS Bedrock runs an independent second-opinion: a different
-model family re-reviews each flagged discrepancy and votes confirm/refute before
-it reaches the firm, so we don't challenge a real caller on a false positive. AWS
-Comprehend Medical codes ER discharges to ICD-10, refining injury severity and
-sharpening the comparable-settlement query.
+**AWS** — S3 is the case's system of record, and we use it as the grounding
+substrate for the deliverable: every case writes its transcript, parsed
+documents, consistency audit, and match result to tiered, KMS-encrypted S3
+buckets (sensitive content separated from operational), and the generated case
+file — Intake Summary, Demand Letter, and Action Sheet PDFs — is built _from_
+those artifacts and written back to the same case prefix, so the firm's
+downloadable PDFs are grounded in stored evidence rather than a transient prompt.
+AWS Bedrock runs an independent second-opinion: a different model family
+re-reviews each flagged discrepancy and votes confirm/refute before it reaches
+the firm, so we don't challenge a real caller on a false positive. AWS Comprehend
+Medical codes ER discharges to ICD-10, refining injury severity and sharpening the
+comparable-settlement query.
 
 ---
 

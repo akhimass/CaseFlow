@@ -1,8 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-  <!-- Flowy wave mark evoking the "flow" in caseflowy -->
-  <g stroke="#0a0a0a" stroke-width="4" stroke-linecap="round" fill="none">
-    <path d="M14 25 C20 19, 26 19, 32 25 S44 31, 50 25" />
-    <path d="M14 32 C20 26, 26 26, 32 32 S44 38, 50 32" />
-    <path d="M14 39 C20 33, 26 33, 32 39 S44 45, 50 39" />
-  </g>
+  <path
+    d="M10 22.5V44.5C10 46.4 11.6 48 13.5 48H50.5C52.4 48 54 46.4 54 44.5V26.5C54 24.6 52.4 23 50.5 23H38.5L34.5 19H13.5C11.6 19 10 20.6 10 22.5Z"
+    stroke="#0a0a0a"
+    stroke-width="3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M12 27 C18 24, 24 24, 30 27 S42 30, 50 27"
+    stroke="#0a0a0a"
+    stroke-width="3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <rect x="22" y="31" width="20" height="13" rx="2.5" stroke="#0a0a0a" stroke-width="2.5" />
+  <circle cx="32" cy="37.5" r="4.25" stroke="#0a0a0a" stroke-width="2.5" />
+  <circle cx="32" cy="37.5" r="1.75" fill="#0a0a0a" />
+  <path
+    d="M27 31V28.5C27 27.7 27.7 27 28.5 27H35.5C36.3 27 37 27.7 37 28.5V31"
+    stroke="#0a0a0a"
+    stroke-width="2.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <circle cx="39" cy="33.5" r="1.25" fill="#0a0a0a" />
 </svg>

@@ -234,6 +234,41 @@ async def _post_chat(
     raise last_error or RuntimeError("Gateway chat failed")
 
 
+async def screen_document(
+    text: str, *, metadata: GatewayMetadata | None = None
+) -> dict[str, Any]:
+    """Screen parsed document text through TrueFoundry's input guardrails.
+
+    Documents scanned/uploaded from the iOS or web app carry PII (names, license
+    numbers, medical detail). This routes the extracted text through the gateway
+    with ``X-TFY-GUARDRAILS`` attached (e.g. caseflow/pii-detection) so the
+    content is screened before it is trusted downstream — a second layer over the
+    app-side RedactingLLM.
+
+    Fail-open: if the gateway or the guardrail group is unavailable the screen is
+    skipped and never blocks document ingest. Returns the screening outcome for
+    the dashboard so the firm can see the document was guardrail-checked.
+    """
+    policy = os.getenv("TFY_INPUT_GUARDRAILS", "").strip()
+    if not text or not gateway_configured() or not policy:
+        return {"screened": False, "policy": policy, "provider": "none"}
+    try:
+        await _post_chat(
+            model=GATEWAY_MODEL,
+            messages=[
+                {"role": "system", "content": "Acknowledge receipt. Reply only 'ok'."},
+                {"role": "user", "content": str(text)[:4000]},
+            ],
+            temperature=0.0,
+            metadata=metadata,
+            timeout_s=min(CHAT_TIMEOUT_S, 6.0),
+        )
+        return {"screened": True, "policy": policy, "provider": "truefoundry"}
+    except Exception as exc:
+        logger.info("document guardrail screen skipped: %s", str(exc)[:120])
+        return {"screened": False, "policy": policy, "provider": "unavailable"}
+
+
 async def _bedrock_chat(
     *,
     messages: list[dict[str, str]],

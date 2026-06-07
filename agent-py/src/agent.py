@@ -39,7 +39,8 @@ from consistency import audit_utterance, check_cross_document, extract_injury_ke
 from doc_intent import DocumentCaptureCoordinator, detect_document_intent
 from doc_thumbnail import make_redacted_thumbnail
 from document_generator import generate_intake_summary, generate_post_match_documents
-from gateway import _record_audit, gateway_configured, llm_configured
+from gateway import GatewayMetadata, _record_audit, gateway_configured, llm_configured
+from gateway import screen_document as gateway_screen_document
 from gateway import tts as gateway_tts
 from geo import state_from_location
 from llm_client import build_dialogue_llm, openai_direct_configured
@@ -709,11 +710,40 @@ class Assistant(Agent):
         # Ground the conversation LLM in the ACTUAL parsed fields so it never talks
         # about a document it hasn't seen (it was hallucinating conclusions before).
         await self._ground_parsed_document(parsed, requested=doc_type)
+        # Screen the scanned/uploaded document content through TrueFoundry
+        # guardrails (PII) for trust — best-effort, never blocks ingest.
+        self._spawn(self._screen_document_guardrails(actual_type, parsed))
         if actual_type in {"police_report", "er_discharge"}:
             self._spawn(self._run_retrieval_fanout())
         # Gap 5 + Enh D: proactively run consistency now that a doc is parsed.
         self._spawn(self._post_parse_consistency(actual_type))
         return parsed
+
+    async def _screen_document_guardrails(self, doc_type: str, parsed: dict) -> None:
+        """Route parsed document text through TrueFoundry input guardrails and
+        record the outcome on the document (visible on the firm dashboard)."""
+        text = str(parsed.get("markdown") or parsed.get("raw_excerpt") or "")
+        if not text:
+            return
+        result = await gateway_screen_document(
+            text,
+            metadata=GatewayMetadata(
+                case_id=self._case_id, turn=self._turn, caller_id=self._user_id
+            ),
+        )
+        logger.info(
+            "CASEFLOW_DOC_GUARDRAIL doc_type=%s screened=%s provider=%s",
+            doc_type,
+            result.get("screened"),
+            result.get("provider"),
+        )
+        docs = self._case_data.get("documents")
+        if isinstance(docs, dict) and isinstance(docs.get(doc_type), dict):
+            docs[doc_type]["guardrail"] = result
+            await self._update_case(
+                "document_guardrail",
+                {"documents": docs, "document_guardrail": {"doc_type": doc_type, **result}},
+            )
 
     async def _ground_parsed_document(self, parsed: dict, *, requested: str) -> None:
         """Inject the real parsed fields into the agent's chat context.
@@ -1586,6 +1616,7 @@ async def my_agent(ctx: JobContext):
     caller_location: str | None = None
     mode = "intake"
     firm_id: str | None = None
+    firm_name: str | None = None
     if ctx.job.metadata:
         try:
             meta = json.loads(ctx.job.metadata)
@@ -1595,13 +1626,17 @@ async def my_agent(ctx: JobContext):
             caller_location = meta.get("caller_location")
             mode = meta.get("mode", "intake")
             firm_id = meta.get("firm_id")
+            firm_name = meta.get("firm_name")
         except json.JSONDecodeError:
             logger.warning("Invalid job metadata; using default user_id")
 
-    # Firm-side ambient briefing persona (Caseflow Counsel): a male-voiced agent
-    # that narrates a matched lead to the attorney and answers follow-ups. Routed
-    # through this same worker via dispatch metadata so the frontend reuses the
-    # existing /api/token path.
+    if mode == "firm_home":
+        from firm_agent import run_firm_home_session
+
+        await run_firm_home_session(ctx, firm_id=firm_id, firm_name=firm_name)
+        return
+
+    # Firm-side case briefing: narrates one matched lead + Q&A.
     if mode == "firm_briefing" and case_id:
         from firm_agent import run_firm_briefing_session
 

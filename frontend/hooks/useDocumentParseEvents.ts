@@ -7,7 +7,7 @@ import { useRoomContext } from '@livekit/components-react';
 export type DocumentParseEvent = {
   id: string;
   docType: string;
-  status: 'parsing' | 'parsed';
+  status: 'parsing' | 'parsed' | 'error';
   fields: Record<string, unknown>;
   timestamp?: number;
 };
@@ -34,7 +34,9 @@ export function useDocumentParseEvents() {
         };
         if (msg.type !== 'document_parse' || !msg.data?.doc_type) return;
 
-        const status = msg.data.status === 'parsed' ? 'parsed' : 'parsing';
+        const raw = msg.data.status;
+        const status: DocumentParseEvent['status'] =
+          raw === 'parsed' ? 'parsed' : raw === 'error' ? 'error' : 'parsing';
         const entry: DocumentParseEvent = {
           id: `${msg.data.doc_type}-${msg.data.timestamp ?? Date.now()}`,
           docType: msg.data.doc_type,

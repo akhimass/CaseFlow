@@ -151,10 +151,20 @@ export function AgentSessionView_01({
     const key = `${latest.docType}:${latest.status}`;
     if (key === lastParseRef.current) return;
     lastParseRef.current = key;
+    const id = `doc-${latest.docType}`;
     if (latest.status === 'parsing') {
-      toast.loading('Reading your document…', { id: `doc-${latest.docType}` });
-    } else if (latest.status === 'parsed') {
-      toast.success('Document read', { id: `doc-${latest.docType}`, duration: 3000 });
+      toast.loading('Reading your document…', { id });
+      // Safety net: never leave the spinner stuck if no result arrives.
+      const t = setTimeout(() => toast.dismiss(id), 50_000);
+      return () => clearTimeout(t);
+    }
+    if (latest.status === 'parsed') {
+      toast.success('Document read', { id, duration: 3000 });
+    } else if (latest.status === 'error') {
+      toast.error('Could not read the document — please hold it steady and try again', {
+        id,
+        duration: 5000,
+      });
     }
   }, [documentParseEvents]);
 

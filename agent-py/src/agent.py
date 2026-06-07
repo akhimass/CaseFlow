@@ -1992,6 +1992,72 @@ class Assistant(Agent):
         return json.dumps(result)
 
     @function_tool()
+    async def code_medical_record(self, context: RunContext) -> str:
+        """Code the caller's parsed ER discharge to ICD-10 via AWS Comprehend
+        Medical, refining injury severity for valuation and the comparable-
+        settlement query. Call once an ER discharge has been parsed."""
+        docs = self._case_data.get("documents") or {}
+        er = docs.get("er_discharge") if isinstance(docs, dict) else None
+        if not isinstance(er, dict):
+            return "No ER discharge has been parsed yet."
+        await self._code_er_discharge("er_discharge", er)
+        res = self._case_data.get("icd10_coding") or {}
+        return json.dumps(
+            {
+                "codes": [c.get("code") for c in (res.get("codes") or [])],
+                "severity": res.get("severity"),
+                "source": res.get("source"),
+            }
+        )
+
+    @function_tool()
+    async def request_second_opinion(self, context: RunContext) -> str:
+        """Run an independent AWS Bedrock (Claude) second-opinion that re-checks the
+        most recent flagged discrepancy before you challenge the caller — confirms
+        or refutes it so a real caller is never challenged on a false positive."""
+        audit = self._case_data.get("consistency_audit")
+        if not isinstance(audit, dict) or not audit.get("conflict"):
+            return "No flagged discrepancy to verify."
+        await self._verify_discrepancy(audit)
+        return json.dumps(self._case_data.get("second_opinion") or {})
+
+    @function_tool()
+    async def generate_case_file(self, context: RunContext) -> str:
+        """Compile the lawyer/paralegal-ready case file — Intake Summary, Demand
+        Letter, and Action Sheet PDFs — grounded in this case's S3 artifacts and
+        posted to the firm dashboard. Runs in the background; call near the end."""
+        self._spawn(self._do_generate_case_file())
+        return (
+            "Generating the case file (Intake Summary, Demand Letter, Action "
+            "Sheet) — they will appear on the firm dashboard shortly."
+        )
+
+    async def _do_generate_case_file(self) -> None:
+        cd = dict(self._case_data)
+
+        async def _done(meta: dict) -> None:
+            await self._emit_generated_document(meta)
+
+        with contextlib.suppress(Exception):
+            await generate_intake_summary(
+                case_id=self._case_id,
+                caller_id=self._user_id,
+                case_data=cd,
+                language=self._language,
+                redaction_session=self._redaction_session,
+                on_complete=_done,
+            )
+        with contextlib.suppress(Exception):
+            await generate_post_match_documents(
+                case_id=self._case_id,
+                caller_id=self._user_id,
+                case_data=cd,
+                language=self._language,
+                redaction_session=self._redaction_session,
+                on_complete=_done,
+            )
+
+    @function_tool()
     async def call_firm_with_brief(
         self, context: RunContext, firm_id: str, case_summary: str
     ) -> str:

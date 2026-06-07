@@ -1,18 +1,24 @@
 import SwiftUI
 
-/// GPU-lite aura visualizer that responds to AriaState + audio level.
-/// Matches the web app's aura shader aesthetics using SwiftUI Canvas.
+/// Monochrome aura visualizer that responds to AriaState + audio level.
 struct AuraVisualizerView: View {
     let state: AriaState
     let audioLevel: Float
     var size: CGFloat = 200
-    @Environment(\.colorScheme) private var colorScheme
 
     @State private var phase: Double = 0
     @State private var pulseScale: CGFloat = 1.0
     private let timer = Timer.publish(every: 1/60, on: .main, in: .common).autoconnect()
 
-    private var accentColor: Color { CaseFlowTheme.auraAccent(colorScheme) }
+    // White when active, dim gray otherwise.
+    private var intensity: Double {
+        switch state {
+        case .speaking:  return 1.0
+        case .thinking:  return 0.85
+        case .listening: return 0.8
+        default:         return state.isActive ? 0.7 : 0.3
+        }
+    }
 
     private var animationSpeed: Double {
         switch state {
@@ -23,16 +29,11 @@ struct AuraVisualizerView: View {
         }
     }
 
-    private var targetScale: CGFloat {
-        let base: CGFloat = state.isActive ? 1.0 : 0.85
-        return base + CGFloat(audioLevel) * 0.4
-    }
-
     var body: some View {
         ZStack {
             // Outer ambient glow
             Circle()
-                .fill(accentColor.opacity(0.08))
+                .fill(Color.white.opacity(0.06 * intensity))
                 .frame(width: size * 1.4, height: size * 1.4)
                 .blur(radius: 20)
 
@@ -40,10 +41,10 @@ struct AuraVisualizerView: View {
             ForEach(0..<3, id: \.self) { i in
                 let delay = Double(i) * 0.3
                 let scale = pulseScale - CGFloat(i) * 0.12
-                let opacity = state.isActive ? (0.5 - Double(i) * 0.15) : (0.15 - Double(i) * 0.04)
+                let opacity = (state.isActive ? (0.5 - Double(i) * 0.15) : (0.15 - Double(i) * 0.04)) * intensity
 
                 Circle()
-                    .stroke(accentColor, lineWidth: i == 0 ? 1.5 : 1.0)
+                    .stroke(Color.white, lineWidth: i == 0 ? 1.5 : 1.0)
                     .frame(width: size * scale, height: size * scale)
                     .opacity(opacity)
                     .animation(
@@ -52,25 +53,20 @@ struct AuraVisualizerView: View {
                     )
             }
 
-            // Core canvas aura
+            // Core canvas aura — grayscale layered arcs
             Canvas { ctx, size in
                 let center = CGPoint(x: size.width / 2, y: size.height / 2)
                 let r = min(size.width, size.height) / 2 * 0.9
 
-                // Draw layered arcs with hue rotation
                 for i in 0..<36 {
                     let t = Double(i) / 36.0
                     let angleStart = Angle(radians: t * .pi * 2 + phase)
                     let angleEnd = Angle(radians: t * .pi * 2 + phase + .pi / 18)
 
-                    // Hue shift like the web shader's colorShift
-                    let hue = (0.6 + t * 0.25 + phase * 0.02).truncatingRemainder(dividingBy: 1.0)
-                    let saturation = state.isActive ? 0.9 : 0.5
-                    let brightness = state.isActive ? (0.7 + Double(audioLevel) * 0.3) : 0.4
-                    let alpha = state.isActive ? (0.6 + Double(audioLevel) * 0.4) : 0.3
-
-                    let color = Color(hue: hue, saturation: saturation, brightness: brightness)
-                        .opacity(alpha)
+                    // Grayscale brightness instead of hue rotation
+                    let brightness = state.isActive ? (0.7 + Double(audioLevel) * 0.3) : 0.45
+                    let alpha = (state.isActive ? (0.55 + Double(audioLevel) * 0.4) : 0.3) * intensity
+                    let color = Color(white: brightness).opacity(alpha)
 
                     let radiusVariance = r * (0.85 + sin(phase * 2 + t * .pi * 4) * 0.15 * Double(1 + audioLevel))
                     let path = Path { p in
@@ -90,9 +86,9 @@ struct AuraVisualizerView: View {
 
             // Center dot
             Circle()
-                .fill(accentColor)
+                .fill(Color.white)
                 .frame(width: 6, height: 6)
-                .opacity(state.isActive ? 0.8 : 0.3)
+                .opacity(state.isActive ? 0.85 : 0.3)
         }
         .frame(width: size * 1.4, height: size * 1.4)
         .onReceive(timer) { _ in

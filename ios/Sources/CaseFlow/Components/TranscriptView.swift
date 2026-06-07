@@ -28,48 +28,47 @@ struct TranscriptView: View {
 
 private struct MessageBubble: View {
     let message: TranscriptMessage
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if message.isAgent {
                 Circle()
-                    .fill(CaseFlowTheme.auraAccent(colorScheme))
+                    .fill(Color.white)
                     .frame(width: 24, height: 24)
                     .overlay(
                         Text("A")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.black)
                     )
             }
 
             VStack(alignment: message.isAgent ? .leading : .trailing, spacing: 3) {
                 Text(message.text)
                     .font(.cfBody)
-                    .foregroundStyle(CaseFlowTheme.textPrimary)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 16)
                             .fill(message.isAgent
-                                  ? Color(.secondarySystemBackground)
-                                  : CaseFlowTheme.auraAccent(colorScheme).opacity(0.15))
+                                  ? Color.white.opacity(0.10)
+                                  : Color.white.opacity(0.18))
                     )
 
                 Text(message.timestamp.formatted(.dateTime.hour().minute()))
                     .font(.cfCaption)
-                    .foregroundStyle(CaseFlowTheme.textTertiary)
+                    .foregroundStyle(.white.opacity(0.4))
             }
             .frame(maxWidth: .infinity, alignment: message.isAgent ? .leading : .trailing)
 
             if !message.isAgent {
                 Circle()
-                    .fill(Color(.tertiarySystemFill))
+                    .fill(Color.white.opacity(0.15))
                     .frame(width: 24, height: 24)
                     .overlay(
                         Image(systemName: "person.fill")
                             .font(.system(size: 12))
-                            .foregroundStyle(CaseFlowTheme.textSecondary)
+                            .foregroundStyle(.white.opacity(0.7))
                     )
             }
         }

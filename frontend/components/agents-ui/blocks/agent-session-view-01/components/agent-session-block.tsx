@@ -149,7 +149,7 @@ export function AgentSessionView_01({
 
   const displayPreConnectMessage =
     agentState === 'connecting'
-      ? 'Aria is connecting — first cloud start can take up to 30 seconds…'
+      ? 'Connecting — the first cloud start can take up to 30 seconds…'
       : preConnectMessage;
 
   return (

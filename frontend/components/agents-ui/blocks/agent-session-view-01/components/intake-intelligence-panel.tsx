@@ -28,7 +28,7 @@ export function IntakeIntelligencePanel({
         <div className="border-border shrink-0 border-b px-4 py-3 lg:px-6">
           <h2 className="text-sm font-semibold tracking-tight">Conversation</h2>
           <p className="text-muted-foreground text-xs">
-            Aria speaks aloud — transcript updates here
+            The specialist speaks aloud — transcript updates here
           </p>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 lg:px-4">

@@ -34,7 +34,7 @@ export const WelcomeView = ({
         <WelcomeImage />
 
         <p className="text-foreground max-w-prose pt-1 leading-6 font-medium">
-          Talk with Aria about your injury case — in Spanish or English, on live video.
+          Talk through your injury case — in Spanish or English, on live video.
         </p>
 
         <Button

@@ -62,7 +62,7 @@ export function ViewController({ appConfig }: ViewControllerProps) {
         <MotionSessionView
           key="session-view"
           {...VIEW_MOTION_PROPS}
-          preConnectMessage="Waiting for Aria to join…"
+          preConnectMessage="Connecting you to the Caseflow specialist…"
           supportsChatInput={appConfig.supportsChatInput}
           supportsVideoInput={appConfig.supportsVideoInput}
           supportsScreenShare={appConfig.supportsScreenShare}

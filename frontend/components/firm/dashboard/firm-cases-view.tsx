@@ -3,10 +3,10 @@
 import { FileTextIcon } from '@phosphor-icons/react/dist/ssr';
 import { type CaseRecord } from '@/hooks/useCaseflowEvents';
 import { cn } from '@/lib/shadcn/utils';
-import { estimatedValue, formatUsd } from './viz';
+import { estimatedValue, formatUsd, strengthTone } from './viz';
 
 const TABLE_COLS =
-  'grid-cols-[minmax(7rem,1.15fr)_minmax(5rem,0.85fr)_minmax(5.5rem,0.9fr)_2.5rem_minmax(3.5rem,0.65fr)_minmax(5.5rem,0.85fr)]';
+  'grid-cols-[minmax(7rem,1.15fr)_minmax(5rem,0.85fr)_minmax(5.5rem,0.9fr)_minmax(5rem,0.8fr)_minmax(3.5rem,0.65fr)_minmax(5.5rem,0.85fr)]';
 
 function prettyType(record: CaseRecord): string {
   const type = String(record.accident_type ?? 'Intake')
@@ -101,8 +101,8 @@ export function FirmCasesView({
             <span>Caller</span>
             <span>Type</span>
             <span>Disposition</span>
-            <span>Score</span>
-            <span>Value</span>
+            <span>Case strength</span>
+            <span>Est. value</span>
             <span>Summary</span>
           </div>
           {firmCases.length === 0 ? (
@@ -142,7 +142,20 @@ export function FirmCasesView({
                       {disp.label}
                     </span>
                   </span>
-                  <span className="tabular-nums">{score || '—'}</span>
+                  <span className="flex items-baseline gap-1 tabular-nums">
+                    {score ? (
+                      <>
+                        <span className={cn('font-semibold', strengthTone(score).text)}>
+                          {score}
+                        </span>
+                        <span className="text-muted-foreground text-[11px]">
+                          {strengthTone(score).label}
+                        </span>
+                      </>
+                    ) : (
+                      '—'
+                    )}
+                  </span>
                   <span className="font-medium tabular-nums">
                     {value > 0 ? formatUsd(value) : '—'}
                   </span>

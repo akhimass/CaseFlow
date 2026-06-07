@@ -49,13 +49,20 @@ export function FirmSidebarCases({
                 >
                   <div className="flex items-center justify-between gap-1">
                     <span className="truncate font-medium">{String(c.caller_id ?? id)}</span>
-                    <span className={cn('shrink-0 tabular-nums', tone.text)}>{score}</span>
+                    <span
+                      className={cn('shrink-0 text-[10px] font-semibold', tone.text)}
+                      title={`Case strength ${score}/100`}
+                    >
+                      {score ? `${tone.label} ${score}` : '—'}
+                    </span>
                   </div>
                   <div className="text-muted-foreground mt-0.5 flex justify-between gap-1">
                     <span className="truncate capitalize">
                       {prettyAccident(c.accident_type) || 'Intake'}
                     </span>
-                    <span className="shrink-0 tabular-nums">{formatUsd(estimatedValue(c))}</span>
+                    <span className="shrink-0 tabular-nums">
+                      Est. {formatUsd(estimatedValue(c))}
+                    </span>
                   </div>
                 </button>
               </li>

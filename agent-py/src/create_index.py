@@ -1,78 +1,130 @@
-"""Build the Moss indexes used by this voice agent.
+"""Build the Moss indexes used by the Caseflow voice agent.
 
-Creates two indexes from the credentials in ``agent-py/.env.local``:
+Caseflow uses **four separate Moss knowledge indexes** — one per retrieval stream —
+plus the per-user ``memory`` index:
 
-* the static ``knowledge`` index (RAG corpus), seeded from ``agent-py/knowledge.json``
-* the ``memory`` index (per-user agentic memory), seeded with a single placeholder
-  document so the index exists and can be loaded before the first runtime write.
+* ``state-law``   — jurisdictional PI law primers (SoL, negligence, damages, general)
+* ``settlements`` — comparable settlement examples
+* ``firms``       — partner law-firm profiles (the curated marketplace inventory)
+* ``procedures``  — what-to-do checklists by scenario
+* ``memory``      — per-user agentic memory (read+write at runtime, seeded here)
+
+The four knowledge indexes are built from per-entry Markdown files under
+``agent-py/knowledge/<index>/*.md``. Each file has YAML-style frontmatter that
+becomes the document's Moss metadata, and a body that becomes the document text::
+
+    ---
+    id: ca-sol
+    state: CA
+    topic: sol
+    citation: "Cal. Code Civ. Proc. §335.1"
+    ---
+
+    California statute of limitations for personal injury...
+
+Moss has no native namespace concept, so each retrieval stream is its own index;
+this gives true isolation and lets every legal index use the higher-accuracy
+``moss-mediumlm`` embedding model (better for bilingual ES/EN legal text), while
+``memory`` stays on the fast default ``moss-minilm``.
 
 Run from the repo root via ``pnpm moss:index`` (which invokes
 ``uv --directory agent-py run src/create_index.py``) once Moss credentials are set.
-This script needs ``MOSS_PROJECT_ID`` / ``MOSS_PROJECT_KEY`` to run; without them it
-exits with a clear message instead of contacting Moss.
+Needs ``MOSS_PROJECT_ID`` / ``MOSS_PROJECT_KEY``; without them it exits with a clear
+message instead of contacting Moss.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 from moss import DocumentInfo, MossClient
 
-# Resolve paths relative to this file so the script works regardless of the
-# current working directory. ``src/create_index.py`` -> parent.parent == agent-py/.
+# Resolve paths relative to this file so the script works regardless of cwd.
+# ``src/create_index.py`` -> parent.parent == agent-py/.
 AGENT_DIR = Path(__file__).resolve().parent.parent
-KNOWLEDGE_PATH = AGENT_DIR / "knowledge.json"
+KNOWLEDGE_DIR = AGENT_DIR / "knowledge"
 ENV_PATH = AGENT_DIR / ".env.local"
 
-DEFAULT_MODEL_ID = "moss-minilm"
-DEFAULT_KNOWLEDGE_INDEX = "knowledge"
+# Higher-accuracy embeddings for the legal corpus (bilingual ES/EN, domain nuance).
+DEFAULT_KNOWLEDGE_MODEL = "moss-mediumlm"
+# Fast default for high-churn per-user memory writes.
+DEFAULT_MEMORY_MODEL = "moss-minilm"
 DEFAULT_MEMORY_INDEX = "memory"
 
-# Load environment variables from agent-py/.env.local.
+# Maps each knowledge index to the env var that can override its name. The index
+# name defaults to the subdirectory name under knowledge/.
+KNOWLEDGE_INDEXES: dict[str, str] = {
+    "state-law": "MOSS_STATE_LAW_INDEX",
+    "settlements": "MOSS_SETTLEMENTS_INDEX",
+    "firms": "MOSS_FIRMS_INDEX",
+    "procedures": "MOSS_PROCEDURES_INDEX",
+}
+
 load_dotenv(ENV_PATH)
 
 
-def _load_knowledge_documents() -> list[DocumentInfo]:
-    """Load knowledge.json into a list of Moss DocumentInfo entries."""
-    if not KNOWLEDGE_PATH.exists():
-        raise FileNotFoundError(f"Knowledge data file not found at {KNOWLEDGE_PATH}.")
+def _parse_frontmatter(raw: str) -> tuple[dict[str, str], str]:
+    """Split a Markdown file into (metadata, body).
 
-    with KNOWLEDGE_PATH.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
+    Frontmatter is a leading ``---`` fenced block of ``key: value`` lines. Values
+    may be quoted; quotes are stripped. We avoid a YAML dependency on purpose — the
+    corpus only uses flat string/number scalars, so a line parser is sufficient and
+    has no third-party install cost. All metadata values are coerced to strings
+    because Moss stores metadata as strings.
+    """
+    text = raw.lstrip("﻿")  # tolerate a UTF-8 BOM
+    if not text.startswith("---"):
+        return {}, text.strip()
 
-    if not isinstance(data, list):
-        raise ValueError("knowledge.json must be a list of document entries.")
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return {}, text.strip()
+
+    _, front, body = parts
+    metadata: dict[str, str] = {}
+    for line in front.strip().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        value = value.strip().strip('"').strip("'")
+        metadata[key.strip()] = value
+    return metadata, body.strip()
+
+
+def _load_markdown_index(subdir: str) -> list[DocumentInfo]:
+    """Load every ``*.md`` entry in ``knowledge/<subdir>/`` into DocumentInfos."""
+    directory = KNOWLEDGE_DIR / subdir
+    if not directory.is_dir():
+        raise FileNotFoundError(f"Knowledge directory not found: {directory}")
 
     documents: list[DocumentInfo] = []
-    for entry in data:
-        if not isinstance(entry, dict):
+    for path in sorted(directory.glob("*.md")):
+        metadata, body = _parse_frontmatter(path.read_text(encoding="utf-8"))
+        if not body:
             continue
-        doc_id = entry.get("id")
-        text = entry.get("text")
-        if not doc_id or not text:
-            continue
-        metadata = entry.get("metadata")
-        if not isinstance(metadata, dict):
-            metadata = {}
-        # Moss metadata values must be strings.
-        metadata = {str(k): str(v) for k, v in metadata.items()}
-        documents.append(DocumentInfo(id=str(doc_id), text=str(text), metadata=metadata))
+        doc_id = metadata.pop("id", None) or path.stem
+        documents.append(
+            DocumentInfo(
+                id=str(doc_id),
+                text=body,
+                metadata={str(k): str(v) for k, v in metadata.items()},
+            )
+        )
 
     if not documents:
-        raise ValueError("No valid documents were loaded from knowledge.json.")
-
+        raise ValueError(f"No Markdown documents found in {directory}.")
     return documents
 
 
 def _memory_seed_documents() -> list[DocumentInfo]:
     """A single placeholder doc so the memory index exists and loads cleanly.
 
-    The agent's memory tools upsert real per-user documents at runtime (matching
-    ``id`` upserts). This seed is filtered out at query time by its ``user_id``.
+    The agent's memory tools upsert real per-user documents at runtime. This seed
+    is filtered out at query time by its ``user_id``.
     """
     return [
         DocumentInfo(
@@ -83,12 +135,24 @@ def _memory_seed_documents() -> list[DocumentInfo]:
     ]
 
 
+async def _build_one(
+    client: MossClient, index_name: str, docs: list[DocumentInfo], model_id: str
+) -> None:
+    print(
+        f"Creating Moss index '{index_name}' ({len(docs)} docs, model '{model_id}')..."
+    )
+    result = await client.create_index(index_name, docs, model_id)
+    print(
+        f"  done (job: {result.job_id}, index: {result.index_name}, docs: {result.doc_count})"
+    )
+
+
 async def build_indexes() -> None:
     project_id = os.getenv("MOSS_PROJECT_ID")
     project_key = os.getenv("MOSS_PROJECT_KEY")
-    knowledge_index = os.getenv("MOSS_INDEX_NAME", DEFAULT_KNOWLEDGE_INDEX)
+    knowledge_model = os.getenv("MOSS_KNOWLEDGE_MODEL_ID", DEFAULT_KNOWLEDGE_MODEL)
     memory_index = os.getenv("MOSS_MEMORY_INDEX_NAME", DEFAULT_MEMORY_INDEX)
-    model_id = os.getenv("MOSS_MODEL_ID", DEFAULT_MODEL_ID)
+    memory_model = os.getenv("MOSS_MEMORY_MODEL_ID", DEFAULT_MEMORY_MODEL)
 
     missing = [
         name
@@ -108,32 +172,24 @@ async def build_indexes() -> None:
     assert project_id is not None
     assert project_key is not None
 
-    knowledge_docs = _load_knowledge_documents()
-    memory_docs = _memory_seed_documents()
+    # Load all corpora up front so a content error fails before any network call.
+    knowledge_docs = {
+        subdir: _load_markdown_index(subdir) for subdir in KNOWLEDGE_INDEXES
+    }
 
     client = MossClient(project_id, project_key)
 
-    print(
-        f"Creating Moss knowledge index '{knowledge_index}' with "
-        f"{len(knowledge_docs)} docs using model '{model_id}'..."
-    )
-    knowledge_result = await client.create_index(knowledge_index, knowledge_docs, model_id)
-    print(
-        f"  done (job: {knowledge_result.job_id}, index: {knowledge_result.index_name}, "
-        f"docs: {knowledge_result.doc_count})"
-    )
+    for subdir, env_var in KNOWLEDGE_INDEXES.items():
+        index_name = os.getenv(env_var, subdir)
+        await _build_one(client, index_name, knowledge_docs[subdir], knowledge_model)
 
-    print(
-        f"Creating Moss memory index '{memory_index}' with "
-        f"{len(memory_docs)} seed doc(s) using model '{model_id}'..."
-    )
-    memory_result = await client.create_index(memory_index, memory_docs, model_id)
-    print(
-        f"  done (job: {memory_result.job_id}, index: {memory_result.index_name}, "
-        f"docs: {memory_result.doc_count})"
-    )
+    await _build_one(client, memory_index, _memory_seed_documents(), memory_model)
 
-    print("Both Moss indexes created. Knowledge (RAG) and memory are ready for use.")
+    total = sum(len(docs) for docs in knowledge_docs.values())
+    print(
+        f"All Moss indexes created: {len(KNOWLEDGE_INDEXES)} knowledge indexes "
+        f"({total} docs) + memory. Ready for use."
+    )
 
 
 if __name__ == "__main__":

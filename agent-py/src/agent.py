@@ -1,10 +1,11 @@
+import asyncio
 import contextlib
 import json
 import logging
 import os
 import textwrap
+import time
 import uuid
-from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from livekit.agents import (
@@ -14,33 +15,118 @@ from livekit.agents import (
     JobContext,
     JobProcess,
     RunContext,
+    UserInputTranscribedEvent,
     cli,
     function_tool,
     inference,
     room_io,
 )
+from livekit.agents.llm import ChatMessage
+from livekit.agents.llm.chat_context import Instructions
 from livekit.plugins import ai_coustics, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from moss import DocumentInfo, MossClient, QueryOptions
 
+from adaptive_retrieval import AdaptiveRetriever
+from aws_s3 import s3_configured, save_document_frame
+from bedrock_llm import bedrock_configured
 from case_broadcast import broadcast
-from case_tools import (
+from case_completeness import case_completeness, completeness_crossed
+from case_persistence import CasePersistence
+from citations import filter_citation_stream
+from consistency import audit_utterance
+from doc_intent import DocumentCaptureCoordinator, detect_document_intent
+from document_generator import generate_intake_summary, generate_post_match_documents
+from gateway import gateway_configured, llm_configured
+from metrics import MetricsTracker
+from minimax_voice import (
+    LoggingSTT,
+    VoiceSessionState,
+    apply_tts_options,
+    build_minimax_tts,
+    log_tts_request,
+    normalize_lang,
+    resolve_caller_language,
+    select_emotion,
+    sync_caller_language,
+)
+from llm_client import build_dialogue_llm
+from openai_llm import openai_configured
+from orchestrator import run_parallel_retrieval, synthesize_and_emit
+from orchestrator import summarize as orchestrator_summarize
+from pii_redaction import RedactionSession, moss_field_value
+from post_call import build_post_call_package
+from privacy_context import bind_redaction_session
+from privacy_ops import build_operational_case
+from pronunciation import register_pronunciation_terms, terms_from_parsed
+from redacting_llm import RedactingLLM
+from retrieval import ALL_KNOWLEDGE_INDEXES, Retriever
+from slot_extraction import extract_slots, slots_above_threshold
+from supabase_store import _configured as supabase_configured
+from tools import (
+    call_firm,
     check_consistency,
+    check_sol,
     compute_case_strength,
     match_firm,
-    mock_call_firm,
-    mock_sms_confirmation,
-    parse_document_unsiloed,
+    send_sms,
 )
-from sol_lookup import check_sol
+from tools import (
+    parse_document as parse_document_tool,
+)
+from validator import maybe_validate_turn
+from video_capture import (
+    request_document_capture,
+    request_enable_video,
+    setup_document_frame_handler,
+)
 
 logger = logging.getLogger("agent")
 
 load_dotenv(".env.local")
 
-KNOWLEDGE_INDEX = os.getenv("MOSS_INDEX_NAME", "knowledge")
+if openai_configured():
+    logger.info("OpenAI configured — gateway-routed LLM calls use OpenAI (gpt-4.1-mini)")
+elif gateway_configured():
+    logger.info(
+        "TrueFoundry gateway configured — LLM calls route through gateway (Bedrock fallback)"
+    )
+elif bedrock_configured():
+    logger.info(
+        "Bedrock configured — gateway-routed LLM calls use Bedrock until TrueFoundry is set"
+    )
+elif llm_configured():
+    logger.warning("Only LiveKit Inference available for gateway-routed LLM calls")
+else:
+    logger.warning(
+        "No gateway LLM configured — consistency uses rules-only fallback"
+    )
+if s3_configured():
+    logger.info("AWS S3 configured — case artifacts will persist to bucket")
+else:
+    logger.warning("AWS IAM keys not set — S3 persistence disabled")
+
+if supabase_configured():
+    logger.info("Supabase service role configured — structured persistence enabled")
+else:
+    logger.warning("Supabase service role not set — DB writes disabled")
+
 MEMORY_INDEX = os.getenv("MOSS_MEMORY_INDEX_NAME", "memory")
 DEFAULT_USER_ID = "user_1"
+
+# Case fields that, when they change, trigger adaptive Moss re-retrieval (Part 4).
+TRACKED_CASE_FIELDS = {
+    "state",
+    "accident_type",
+    "severity",
+    "fault",
+    "er_visited",
+    "imaging_ordered",
+    "injuries",
+    "treatment",
+    "language",
+    "prior_representation",
+}
 
 ARIA_INSTRUCTIONS = textwrap.dedent(
     """\
@@ -51,24 +137,79 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
 
     # Intake flow
 
-    1. Greet in the caller's language. Ask what happened.
+    1. Greet first when the session starts — warm welcome as Aria, introduce Caseflow,
+       invite them to describe what happened. Never wait silently; never say "ask a
+       question" or "I'm listening."
     2. Collect: accident type, date, state/jurisdiction, injuries, treatment so
        far, fault as the caller perceives it, prior representation.
-    3. When documents are relevant, ask the caller to hold them up to the camera
-       and call parse_document.
-    4. After parsing, call check_consistency if verbal claims may conflict with
-       documents — especially fault. Ask clarifying questions gently, never accusing.
-    5. Call search_legal_knowledge for SoL rules, comparables, and firm context.
+    3. When documents are relevant, ask the caller to turn on their camera, hold the
+       paper steady close to the lens, keep it in frame, then call parse_document.
+    4. After documents are parsed, audit the caller's claims (see "Consistency
+       auditing" below). Ask clarifying questions gently, never accusing.
+    5. Retrieve supporting knowledge from Moss as soon as you have the inputs it
+       needs (see "Retrieval tools" below). Do not wait until the end of the call.
     6. Save each field with save_case_field as you learn it.
     7. Call compute_case_strength and match_firm before closing.
     8. Close by confirming a matched firm will reach out the next morning.
     9. Mock outbound: call_firm_with_brief then send_sms_confirmation.
 
+    # Retrieval tools
+
+    You have four retrieval tools, all backed by Moss:
+    - retrieve_state_law(state, topic) — pull jurisdictional PI law (SoL,
+      negligence rules, damage caps). Call this as soon as you know the caller's
+      state.
+    - retrieve_comparables(accident_type, jurisdiction, severity, fault) — pull
+      comparable settlement ranges. Call this once you have accident type and
+      severity.
+    - retrieve_matching_firms(case_data, caller_location) — pull top matching
+      firms. Call this only after you have enough case context (accident type,
+      jurisdiction, language preference, severity).
+    - retrieve_procedural_guidance(scenario) — pull what-to-do checklists. Call
+      this when the caller asks "what should I do" or when you proactively
+      volunteer next steps.
+
+    Use these proactively as soon as you have the inputs they need. Do not wait
+    until the end of the call. Reference what you retrieve conversationally — for
+    example, "based on similar cases in California, settlements have ranged from
+    $30,000 to $80,000" — never read results verbatim or say "Moss returned."
+
+    # Consistency auditing
+
+    After parsed documents arrive, call audit_claim with each significant claim
+    the caller has made. If it returns a clarifying question with confidence
+    above 0.7, ask that question gently in the caller's language, framed as
+    helping clarify rather than catching a contradiction.
+
+    # Citations
+
+    When you reference specific retrieved information in your response, emit a
+    citation marker in this exact format: [cite:<id>]. The marker is invisible to
+    the caller — it is stripped before TTS. Examples:
+    - "Casos similares en California han llegado a acuerdos entre $30,000 y
+      $80,000 [cite:settlements:ca-rear-end-med-contested]"
+    - "En California tiene dos años para presentar su demanda [cite:state-law:ca-sol]"
+    - "Le voy a conectar con Martinez & Associates [cite:firms:martinez]"
+
+    Emit citations for every claim you make that came from retrieval. Multiple
+    citations per response are fine. Citation IDs must match exactly the
+    [cite:...] ids the retrieval tools returned to you — copy them verbatim.
+
     # Voice rules
 
-    Plain text only. One to three sentences. One question per turn. No markdown,
-    lists, or tool names spoken aloud. Never promise settlement amounts or legal
-    outcomes. Say "filing window" not "statute of limitations" unless caller does.
+    Plain text only. Cap at about two sentences for normal turns; up to four
+    sentences for the discrepancy moment or final firm match and booking. One
+    question per turn. No markdown, lists, or tool names spoken aloud. Never
+    promise settlement amounts or legal outcomes. Say "filing window" not
+    "statute of limitations" unless caller does.
+
+    Speak with natural pauses and let the caller finish their thoughts. When
+    acknowledging pain or distress, slow down slightly and soften your tone.
+    When confirming a matched firm or booked consultation, speak with reassuring
+    confidence. Use the caller's name when you have it, sparingly. Avoid
+    repeating "I understand" — vary acknowledgments naturally. If the caller
+    speaks Spanish, respond in fluent culturally natural Spanish using formal
+    "usted" unless they use informal Spanish.
 
     # Demo persona awareness
 
@@ -80,45 +221,372 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
 )
 
 
+def _instructions_for_language(lang: str) -> str:
+    lock = (
+        "\n\n# Active caller language\n"
+        "Respond only in Spanish using formal usted for the remainder of intake."
+        if lang == "es"
+        else "\n\n# Active caller language\n"
+        "Respond only in English for the remainder of intake."
+    )
+    return ARIA_INSTRUCTIONS + lock
+
+
 class Assistant(Agent):
     """Caseflow video intake agent with Moss RAG and live case broadcasting."""
 
-    def __init__(self, *, room=None, user_id: str = DEFAULT_USER_ID) -> None:
-        super().__init__(
-            llm=inference.LLM(model="openai/gpt-5.2-chat-latest"),
-            instructions=ARIA_INSTRUCTIONS,
-        )
+    def __init__(
+        self,
+        *,
+        room=None,
+        user_id: str = DEFAULT_USER_ID,
+        voice_state: VoiceSessionState | None = None,
+        case_id: str | None = None,
+        consent_given_at: str | None = None,
+        caller_location: str | None = None,
+    ) -> None:
+        self._redaction_session = RedactionSession()
+        bind_redaction_session(self._redaction_session)
         self._room = room
         self._user_id = user_id
-        self._case_id = user_id
-        self._language = "en"
-        self._case_data: dict = {"caller_id": user_id, "language": "en"}
+        self._case_id = case_id or str(uuid.uuid4())
+        inner_llm = build_dialogue_llm(case_id=self._case_id)
+        self._redacting_llm = RedactingLLM(
+            inner=inner_llm,
+            session=self._redaction_session,
+        )
+        super().__init__(
+            llm=self._redacting_llm,
+            instructions=ARIA_INSTRUCTIONS,
+        )
+        self._consent_given_at = consent_given_at
+        self._caller_location = (caller_location or "").strip()
+        self._voice_state = voice_state or VoiceSessionState()
+        self._language = self._voice_state.caller_language
+        self._case_data: dict = {
+            "caller_id": user_id,
+            "language": self._voice_state.caller_language,
+        }
+        if self._caller_location:
+            self._case_data["location"] = self._caller_location
+            self._case_data["state"] = "CA"
+            self._case_data["caller_location"] = self._caller_location
         self._moss = MossClient(
             os.getenv("MOSS_PROJECT_ID"), os.getenv("MOSS_PROJECT_KEY")
         )
+        # Per-session Moss query cache, shared between the retrieval tools and the
+        # parallel orchestrator so identical queries are never re-issued.
+        self._moss_cache: dict = {}
+        self._retriever = Retriever(
+            self._moss, on_result=self._on_moss_result, cache=self._moss_cache
+        )
+        # Part 4: incremental re-retrieval as the case state evolves mid-call.
+        self._adaptive = AdaptiveRetriever(
+            self._retriever, resynthesize=self._resynthesize
+        )
         self._indexes_loaded = False
+        self._turn = 0
+        self._last_user_utterance = ""
+        self._last_agent_utterance = ""
+        self._transcript_lines: list[dict] = []
+        self._auto_saved_fields: set[str] = set()
+        self._doc_capture = DocumentCaptureCoordinator()
+        self._minimax_tts = None
+        # Strong refs to fire-and-forget tasks so they aren't GC'd mid-flight.
+        self._bg_tasks: set = set()
+        # Monotonic counter for cited_source events (UI restarts pulse per event).
+        self._cite_seq = 0
+        # Monotonic counter for Caseflow Decision updates (UI cross-fades per seq).
+        self._decision_seq = 0
+        self._generated_doc_types: set[str] = set()
+        self._completeness_doc_fired = False
+        self._match_docs_fired = False
+        self._persistence = CasePersistence(
+            self._case_id,
+            self._user_id,
+            redaction_session=self._redaction_session,
+            language=self._language,
+            consent_given_at=consent_given_at,
+        )
+
+    def bind_tts(self, tts_engine) -> None:
+        self._minimax_tts = tts_engine
+
+    async def tts_node(self, text, model_settings):
+        """Strip [cite:<id>] markers before synthesis and emit cited_source events.
+
+        Aria embeds citation markers inline; the caller must never hear them, so we
+        filter the streamed text here (markers can span chunks) and fire a
+        cited_source event per marker so the firm dashboard pulses the grounding card.
+        """
+        cleaned = filter_citation_stream(text, self._emit_citation)
+        async for frame in Agent.default.tts_node(self, cleaned, model_settings):
+            yield frame
+
+    async def _emit_citation(self, citation_id: str) -> None:
+        """Broadcast a cited_source event (SSE to firm dashboard + LiveKit packet)."""
+        self._cite_seq += 1
+        event = {
+            "citation_id": citation_id,
+            "timestamp": time.time(),
+            "seq": self._cite_seq,
+        }
+        logger.info("CASEFLOW_CITE %s", citation_id)
+        # SSE path → firm dashboard (partial payload; the store merges it).
+        with contextlib.suppress(Exception):
+            await broadcast(
+                self._room, self._case_id, "cited_source", {"cited_source": event}
+            )
+        # LiveKit data packet on its own channel for in-room (intake) consumers.
+        if self._room is not None:
+            with contextlib.suppress(Exception):
+                await self._room.local_participant.publish_data(
+                    payload=json.dumps(
+                        {"type": "cited_source", "data": event}, default=str
+                    ).encode("utf-8"),
+                    reliable=True,
+                )
+
+    @staticmethod
+    def _message_text(message: ChatMessage) -> str:
+        parts: list[str] = []
+        for block in message.content:
+            text = getattr(block, "text", None)
+            if text:
+                parts.append(str(text))
+        return " ".join(parts).strip()
+
+    async def _append_transcript(
+        self, speaker: str, text: str, language: str, turn: int
+    ) -> None:
+        if not text.strip():
+            return
+        line = {
+            "speaker": speaker,
+            "text": text.strip(),
+            "language": language,
+            "turn": turn,
+        }
+        self._transcript_lines.append(line)
+        self._case_data["transcript_lines"] = self._transcript_lines[-200:]
+        await self._persistence.on_transcript_line(speaker, text, language, turn)
+        await self._update_case(
+            "transcript_line",
+            {"transcript_line": line, "transcript_lines": self._transcript_lines[-200:]},
+        )
+
+    async def _persist_field_internal(
+        self, field_name: str, value: str, *, source: str = "agent"
+    ) -> None:
+        memory_value = moss_field_value(
+            field_name,
+            value,
+            session=self._redaction_session,
+            language=self._language,
+        )
+        doc = DocumentInfo(
+            id=f"{self._user_id}-{field_name}-{uuid.uuid4()}",
+            text=f"{field_name}={memory_value}",
+            metadata={"user_id": self._user_id, "field": field_name, "source": source},
+        )
+        await self._moss.add_docs(MEMORY_INDEX, [doc])
+        try:
+            await self._moss.load_index(MEMORY_INDEX)
+        except Exception:
+            logger.exception("Failed to reload memory index")
+        if field_name == "language":
+            lang = normalize_lang(value) or (
+                "es" if value.lower().startswith("es") else "en"
+            )
+            self._language = lang
+            self._voice_state.caller_language = lang
+            self._voice_state.language_confirmed = True
+        await self._update_case(
+            "field_saved",
+            {field_name: value, "field_source": source},
+        )
+
+    async def _auto_extract_and_save(self, transcript: str, language: str) -> None:
+        slots = await extract_slots(
+            transcript,
+            language,
+            case_id=self._case_id,
+            turn=self._turn,
+            caller_id=self._user_id,
+        )
+        for slot in slots_above_threshold(slots):
+            if slot.field_name in self._auto_saved_fields:
+                continue
+            if self._case_data.get(slot.field_name):
+                continue
+            self._auto_saved_fields.add(slot.field_name)
+            await self._persist_field_internal(
+                slot.field_name, slot.value, source=f"stt:{slot.source}"
+            )
+            logger.info(
+                "CASEFLOW_AUTO_FIELD %s",
+                json.dumps(
+                    {
+                        "field": slot.field_name,
+                        "confidence": slot.confidence,
+                        "source": slot.source,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+
+    async def _maybe_capture_document(self, transcript: str) -> None:
+        intent = detect_document_intent(transcript)
+        if intent is None or not self._doc_capture.should_capture(intent.doc_type):
+            return
+        await request_enable_video(
+            self._room,
+            case_id=self._case_id,
+            doc_type=intent.doc_type,
+            turn=self._turn,
+        )
+        await request_document_capture(
+            self._room,
+            case_id=self._case_id,
+            doc_type=intent.doc_type,
+            turn=self._turn,
+            matched_phrase=intent.matched_phrase,
+        )
+        await self._update_case(
+            "document_capture_requested",
+            {
+                "doc_type": intent.doc_type,
+                "matched_phrase": intent.matched_phrase,
+                "turn": self._turn,
+            },
+        )
+
+    async def _ingest_document(
+        self,
+        doc_type: str,
+        image_base64: str,
+        *,
+        turn: int,
+        source: str,
+    ) -> dict:
+        if s3_configured():
+            await save_document_frame(
+                self._case_id, turn=turn, doc_type=doc_type, image_base64=image_base64
+            )
+        parsed = await parse_document_tool(image_base64, doc_type)
+        docs = self._case_data.get("documents") or {}
+        if not isinstance(docs, dict):
+            docs = {}
+        docs[doc_type] = {**parsed, "capture_source": source, "turn": turn}
+        await self._update_case("document_parsed", {"documents": docs})
+        await self._persistence.on_document_parsed(doc_type, parsed)
+        register_pronunciation_terms(
+            self._voice_state,
+            terms_from_parsed(doc_type, parsed),
+            tts=self._minimax_tts,
+        )
+        if doc_type == "police_report":
+            self._spawn(self._run_retrieval_fanout())
+        return parsed
+
+    async def _on_document_frame(self, data: dict) -> None:
+        doc_type = str(data.get("doc_type") or "").strip()
+        image_base64 = str(data.get("image_base64") or "").strip()
+        turn = int(data.get("turn") or self._turn)
+        if not doc_type or not image_base64:
+            return
+        try:
+            await self._ingest_document(
+                doc_type,
+                image_base64,
+                turn=turn,
+                source="camera_frame",
+            )
+        except Exception:
+            logger.exception("Failed to ingest document frame for %s", doc_type)
+
+    async def _finalize_post_call(self) -> None:
+        try:
+            operational = build_operational_case(
+                self._case_data,
+                session=self._redaction_session,
+                language=self._language,
+                consent_given_at=self._consent_given_at,
+            )
+            redacted_lines = operational.get("transcript_lines") or self._transcript_lines
+            package = await build_post_call_package(
+                case_id=self._case_id,
+                caller_id=self._user_id,
+                case_data=operational,
+                transcript_lines=redacted_lines,
+            )
+            await self._persistence.flush_all()
+            await self._update_case("post_call_package", package)
+        except Exception:
+            logger.exception("Post-call package build failed")
+
+    def _spawn(self, coro) -> None:
+        """Run a coroutine in the background, retaining a reference until done."""
+        task = asyncio.create_task(coro)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+
+    async def _preload_indexes(self) -> None:
+        if self._indexes_loaded:
+            return
+        try:
+            for index in (*ALL_KNOWLEDGE_INDEXES, MEMORY_INDEX):
+                await self._moss.load_index(index)
+            self._indexes_loaded = True
+        except Exception:
+            logger.exception("Failed to preload Moss indexes")
 
     async def on_enter(self) -> None:
-        if not self._indexes_loaded:
-            try:
-                await self._moss.load_index(KNOWLEDGE_INDEX)
-                await self._moss.load_index(MEMORY_INDEX)
-                self._indexes_loaded = True
-            except Exception:
-                logger.exception("Failed to preload Moss indexes")
+        self._spawn(self._preload_indexes())
+        if self.session is None:
+            return
+        await self.session.generate_reply(
+            instructions=Instructions(
+                audio=(
+                    "The caller just joined live video intake. You are Aria from Caseflow. "
+                    "Greet them warmly RIGHT NOW — do not wait for them to speak first. "
+                    "Brief bilingual welcome (one line English, one line Spanish), then ask "
+                    "what happened. Two or three short sentences total. Never say "
+                    "'ask a question', 'I'm listening', or similar passive phrases."
+                ),
+            ),
+        )
 
-    async def _publish_moss_context(self, query: str, result) -> None:
+    async def _on_moss_result(self, event: dict) -> None:
+        """Callback for the Retriever: append the retrieval card and broadcast it.
+
+        Reaches the firm dashboard via the SSE fan-out in ``_update_case`` and the
+        intake-side context panel via a LiveKit ``moss_context`` data packet.
+        """
+        retrievals = self._case_data.get("moss_retrievals")
+        if not isinstance(retrievals, list):
+            retrievals = []
+        retrievals = [*retrievals, event][-16:]  # keep the last 16 cards
+        await self._update_case(
+            "moss_retrieval",
+            {"moss_retrieval": event, "moss_retrievals": retrievals},
+        )
+        await self._publish_moss_context_event(event)
+
+    async def _publish_moss_context_event(self, event: dict) -> None:
         if self._room is None:
             return
         try:
             matches: list[dict] = []
-            for doc in getattr(result, "docs", None) or []:
-                entry: dict = {"text": (getattr(doc, "text", "") or "").strip()}
-                score = getattr(doc, "score", None)
+            for snippet in event.get("snippets", []):
+                entry: dict = {"text": (snippet.get("text") or "").strip()}
+                score = snippet.get("score")
                 if score is not None:
                     with contextlib.suppress(TypeError, ValueError):
                         entry["score"] = float(score)
-                metadata = getattr(doc, "metadata", None)
+                metadata = {
+                    k: v for k, v in snippet.items() if k not in ("text", "score")
+                }
                 if metadata:
                     entry["metadata"] = metadata
                 matches.append(entry)
@@ -126,10 +594,10 @@ class Assistant(Agent):
             payload = {
                 "type": "moss_context",
                 "data": {
-                    "query": query,
+                    "query": f"[{event.get('namespace')}] {event.get('query')}",
                     "matches": matches,
-                    "time_taken_ms": getattr(result, "time_taken_ms", None),
-                    "timestamp": datetime.now(timezone.utc).timestamp(),
+                    "time_taken_ms": event.get("time_taken_ms"),
+                    "timestamp": event.get("timestamp"),
                 },
             }
             await self._room.local_participant.publish_data(
@@ -140,48 +608,211 @@ class Assistant(Agent):
             logger.exception("Failed to publish moss_context")
 
     async def _update_case(self, event: str, fields: dict) -> None:
+        # Part 4A: detect case-state changes before merging so adaptive retrieval
+        # can re-query just the affected Moss streams.
+        diff = [
+            key
+            for key in fields
+            if key in TRACKED_CASE_FIELDS and fields[key] != self._case_data.get(key)
+        ]
         self._case_data.update(fields)
-        await broadcast(self._room, self._case_id, event, self._case_data)
+        self._case_data["case_id"] = self._case_id
+        self._case_data["last_event"] = event
+        if self._consent_given_at:
+            self._case_data["consent_given_at"] = self._consent_given_at
+        if s3_configured():
+            self._case_data["s3_prefix"] = (
+                f"s3://{os.getenv('AWS_S3_BUCKET', 'caseflow-cases-dev')}/{self._case_id}/"
+            )
+        self._redacting_llm.set_language(self._language)
+        self._persistence.set_language(self._language)
+        operational = build_operational_case(
+            self._case_data,
+            session=self._redaction_session,
+            language=self._language,
+            consent_given_at=self._consent_given_at,
+        )
+        await broadcast(self._room, self._case_id, event, operational)
+        await self._persistence.on_case_update(
+            event, operational, full_fields=self._case_data
+        )
+        self._spawn(self._maybe_generate_documents(event))
+        if diff:
+            logger.info("CASEFLOW_STATE_DIFF %s", diff)
+            self._spawn(self._adaptive.on_case_state_change(diff, dict(self._case_data)))
+
+    async def _resynthesize(self) -> None:
+        """Re-run synthesis from the latest per-stream rows (adaptive cross-fade)."""
+        retrievals = self._retriever.latest_retrievals()
+        await synthesize_and_emit(
+            retrievals,
+            self._case_data,
+            self._on_decision,
+            case_id=self._case_id,
+            caller_id=self._user_id,
+        )
+
+    async def _emit_generated_document(self, meta: dict) -> None:
+        doc_type = str(meta.get("doc_type") or "")
+        if not doc_type:
+            return
+        docs = self._case_data.get("generated_documents")
+        if not isinstance(docs, list):
+            docs = []
+        docs = [d for d in docs if str(d.get("doc_type")) != doc_type]
+        docs.append(meta)
+        self._case_data["generated_documents"] = docs
+        await self._persistence.on_generated_document(meta)
+        await self._update_case(
+            "document_generated",
+            {"generated_documents": docs, "latest_document": meta},
+        )
+
+    async def _maybe_generate_documents(self, event: str) -> None:
+        if event == "document_generated":
+            return
+        try:
+            if (
+                not self._completeness_doc_fired
+                and completeness_crossed(self._case_data)
+                and "intake_summary" not in self._generated_doc_types
+            ):
+                self._completeness_doc_fired = True
+                self._generated_doc_types.add("intake_summary")
+
+                async def _on_done(meta: dict) -> None:
+                    await self._emit_generated_document(meta)
+
+                await generate_intake_summary(
+                    case_id=self._case_id,
+                    caller_id=self._user_id,
+                    case_data=dict(self._case_data),
+                    language=self._language,
+                    redaction_session=self._redaction_session,
+                    on_complete=_on_done,
+                )
+
+            if (
+                event == "firms_matched"
+                and not self._match_docs_fired
+                and "demand_letter" not in self._generated_doc_types
+            ):
+                self._match_docs_fired = True
+                self._generated_doc_types.update({"demand_letter", "action_sheet"})
+
+                async def _on_post_match(meta: dict) -> None:
+                    await self._emit_generated_document(meta)
+
+                await generate_post_match_documents(
+                    case_id=self._case_id,
+                    caller_id=self._user_id,
+                    case_data=dict(self._case_data),
+                    language=self._language,
+                    redaction_session=self._redaction_session,
+                    on_complete=_on_post_match,
+                )
+
+            self._case_data["case_completeness"] = round(
+                case_completeness(self._case_data), 2
+            )
+        except Exception:
+            logger.exception("Document generation orchestration failed")
 
     @function_tool()
-    async def search_legal_knowledge(self, context: RunContext, query: str) -> str:
-        """Search PI law, SoL, settlements, and firm profiles before answering legal questions.
+    async def retrieve_state_law(
+        self, context: RunContext, state: str, topic: str = "general"
+    ) -> str:
+        """Look up jurisdictional personal-injury law from the Moss state-law index.
+
+        Call this once you learn the caller's state, and again when the topic
+        shifts (filing window, fault rules, damages).
 
         Args:
-            query: Topic to look up (SoL, comparables, firm match, negligence rules).
+            state: Two-letter US state code (CA, TX, FL).
+            topic: One of sol (filing window), negligence, damages, or general.
         """
-        result = await self._moss.query(
-            KNOWLEDGE_INDEX, query, QueryOptions(top_k=3)
-        )
-        await self._publish_moss_context(query, result)
-        docs = getattr(result, "docs", None) or []
-        snippets = [(getattr(d, "text", "") or "").strip() for d in docs]
-        snippets = [s for s in snippets if s]
-        if not snippets:
-            return "No relevant legal knowledge found."
-        return "\n\n".join(snippets)
+        rows = await self._retriever.state_law(state, topic)
+        if not rows:
+            return "No state law found for that jurisdiction."
+        return "\n\n".join(r.summary() for r in rows)
 
     @function_tool()
-    async def save_case_field(self, context: RunContext, field_name: str, value: str) -> str:
+    async def retrieve_comparables(
+        self,
+        context: RunContext,
+        accident_type: str,
+        jurisdiction: str,
+        severity: str = "medium",
+        fault: str = "contested",
+    ) -> str:
+        """Retrieve comparable past settlements from the Moss settlements index.
+
+        Use this to ground a realistic settlement range for the caller — never
+        promise an amount, only describe comparable outcomes.
+
+        Args:
+            accident_type: rear_end, t_bone, slip_fall, motorcycle, premises, dog_bite.
+            jurisdiction: Two-letter state code (CA, TX, FL).
+            severity: low, medium, or high.
+            fault: clear, contested, or shared.
+        """
+        rows = await self._retriever.comparables(
+            accident_type, jurisdiction, severity, fault
+        )
+        if not rows:
+            return "No comparable settlements found."
+        return "\n\n".join(r.summary() for r in rows)
+
+    @function_tool()
+    async def retrieve_matching_firms(
+        self, context: RunContext, caller_location: str = ""
+    ) -> str:
+        """Find the top partner firms for this case from the Moss firms index.
+
+        Filters the curated firm roster by jurisdiction, caller language, specialty,
+        and case-value floor, using the case data collected so far.
+
+        Args:
+            caller_location: City or county for local-presence matching (optional).
+        """
+        rows = await self._retriever.firms(self._case_data, caller_location)
+        if rows:
+            await self._update_case(
+                "firms_retrieved",
+                {"moss_firm_matches": [r.__dict__ for r in rows]},
+            )
+            return "\n\n".join(r.summary() for r in rows)
+        return "No matching firms found for this case profile."
+
+    @function_tool()
+    async def retrieve_procedural_guidance(
+        self, context: RunContext, scenario: str
+    ) -> str:
+        """Retrieve a next-steps checklist from the Moss procedures index.
+
+        Use when the caller asks "what should I do next?" or to proactively offer
+        guidance (first 72 hours, insurance adjuster, recorded statements,
+        documenting injuries, finding a doctor).
+
+        Args:
+            scenario: Plain-language description of the situation or question.
+        """
+        rows = await self._retriever.procedures(scenario)
+        if not rows:
+            return "No procedural guidance found."
+        return "\n\n".join(r.summary() for r in rows)
+
+    @function_tool()
+    async def save_case_field(
+        self, context: RunContext, field_name: str, value: str
+    ) -> str:
         """Persist a structured case field (accident_type, injuries, fault_claim, state, etc.).
 
         Args:
             field_name: Case field key.
             value: Field value as plain text.
         """
-        doc = DocumentInfo(
-            id=f"{self._user_id}-{field_name}-{uuid.uuid4()}",
-            text=f"{field_name}={value}",
-            metadata={"user_id": self._user_id, "field": field_name},
-        )
-        await self._moss.add_docs(MEMORY_INDEX, [doc])
-        try:
-            await self._moss.load_index(MEMORY_INDEX)
-        except Exception:
-            logger.exception("Failed to reload memory index")
-        if field_name == "language":
-            self._language = value.lower()
-        await self._update_case("field_saved", {field_name: value})
+        await self._persist_field_internal(field_name, value, source="tool")
         return f"Saved {field_name}."
 
     @function_tool()
@@ -215,13 +846,44 @@ class Assistant(Agent):
     ) -> str:
         """Parse a document the caller holds up to the camera via Unsiloed.
 
+        Ask the caller to turn on video first if needed, then hold the document
+        steady close to the lens.
+
         Args:
             image_base64: Base64-encoded camera frame of the document.
             doc_type: police_report, er_discharge, or insurance_letter.
         """
-        parsed = await parse_document_unsiloed(image_base64, doc_type)
-        await self._update_case("document_parsed", {"documents": {doc_type: parsed}})
+        parsed = await self._ingest_document(
+            doc_type,
+            image_base64,
+            turn=self._turn,
+            source="tool",
+        )
         return json.dumps(parsed)
+
+    async def _run_retrieval_fanout(self) -> None:
+        try:
+            location = str(self._case_data.get("location") or "")
+            result = await run_parallel_retrieval(
+                self._retriever,
+                self._case_data,
+                caller_location=location,
+                on_decision=self._on_decision,
+                case_id=self._case_id,
+                caller_id=self._user_id,
+            )
+            logger.info(orchestrator_summarize(result))
+        except Exception:
+            logger.exception("Parallel retrieval fan-out failed")
+
+    async def _on_decision(self, payload: dict) -> None:
+        """Broadcast a Caseflow Decision update (synthesizing / ready / error)."""
+        self._decision_seq += 1
+        prior = self._case_data.get("caseflow_decision")
+        prior = prior if isinstance(prior, dict) else {}
+        # Preserve the last good synthesis under a transient "synthesizing" status.
+        merged = {**prior, **payload, "seq": self._decision_seq, "timestamp": time.time()}
+        await self._update_case("caseflow_decision", {"caseflow_decision": merged})
 
     @function_tool()
     async def check_consistency_tool(
@@ -238,11 +900,69 @@ class Assistant(Agent):
             verbal_claim: What the caller said.
             parsed_value: What the parsed document states.
         """
-        result = check_consistency(
-            field_name, verbal_claim, parsed_value, self._language
+        result = await check_consistency(
+            field_name,
+            verbal_claim,
+            parsed_value,
+            self._language,
+            case_id=self._case_id,
+            turn=self._turn,
+            caller_id=self._user_id,
+            case_state=self._case_data,
         )
         if result.get("conflict"):
-            await self._update_case("discrepancy_found", result)
+            self._voice_state.message_type = "empathetic"
+            await self._persistence.on_consistency_audit(result)
+            await self._update_case(
+                "discrepancy_found",
+                {"consistency_audit": result, **result},
+            )
+        return json.dumps(result)
+
+    @function_tool()
+    async def audit_claim(self, context: RunContext, utterance: str) -> str:
+        """Cross-check a caller statement against documents and Moss knowledge.
+
+        Extracts the claims in the statement, then checks them against parsed
+        documents, the retrieved state law (e.g. filing-window beliefs), and
+        comparable settlements (e.g. unrealistic expectations). If a conflict is
+        found, returns a gentle clarifying question to ask in the caller's language.
+
+        Args:
+            utterance: The caller's most recent statement to audit.
+        """
+        retrievals = self._case_data.get("moss_retrievals") or []
+        law = [
+            s
+            for ev in retrievals
+            if ev.get("namespace") == "state-law"
+            for s in ev.get("snippets", [])
+        ]
+        comps = [
+            s
+            for ev in retrievals
+            if ev.get("namespace") == "settlements"
+            for s in ev.get("snippets", [])
+        ]
+        result = await audit_utterance(
+            utterance,
+            language=self._language,
+            parsed_docs=self._case_data.get("documents"),
+            law_snippets=law,
+            comparables=comps,
+            state=str(self._case_data.get("state") or ""),
+            case_id=self._case_id,
+            turn=self._turn,
+            caller_id=self._user_id,
+        )
+        if result.get("conflict"):
+            self._voice_state.message_type = "empathetic"
+            await self._persistence.on_consistency_audit(result)
+            audit_fields = {k: v for k, v in result.items() if k != "claims"}
+            await self._update_case(
+                "discrepancy_found",
+                {"consistency_audit": result, **audit_fields},
+            )
         return json.dumps(result)
 
     @function_tool()
@@ -261,7 +981,10 @@ class Assistant(Agent):
         Args:
             caller_location: City or county for local matching.
         """
-        result = match_firm(self._case_data, caller_location)
+        location = (caller_location or self._caller_location or "").strip()
+        result = match_firm(self._case_data, location)
+        self._voice_state.message_type = "reassuring"
+        await self._persistence.on_firms_matched(result)
         await self._update_case("firms_matched", result)
         return json.dumps(result)
 
@@ -275,7 +998,8 @@ class Assistant(Agent):
             firm_id: Matched firm identifier.
             case_summary: Brief for the receptionist.
         """
-        result = mock_call_firm(firm_id, case_summary)
+        result = call_firm(firm_id, case_summary)
+        await self._persistence.on_firm_brief(case_summary)
         await self._update_case("outbound_call", result)
         return json.dumps(result)
 
@@ -283,13 +1007,22 @@ class Assistant(Agent):
     async def send_sms_confirmation(
         self, context: RunContext, consumer_phone: str, consultation_time: str
     ) -> str:
-        """SMS confirmation to consumer — mocked for hackathon demo.
+        """SMS confirmation to consumer.
 
         Args:
             consumer_phone: Caller phone number.
             consultation_time: Booked consultation time.
         """
-        result = mock_sms_confirmation(consumer_phone, consultation_time)
+        body = (
+            f"Caseflow: Su consulta está confirmada para {consultation_time}. "
+            f"Un bufete se comunicará con usted. Reply STOP to opt out."
+            if self._language.startswith("es")
+            else (
+                f"Caseflow: Your consultation is confirmed for {consultation_time}. "
+                "A matched firm will reach out. Reply STOP to opt out."
+            )
+        )
+        result = send_sms(consumer_phone, body)
         await self._update_case("sms_sent", result)
         return json.dumps(result)
 
@@ -328,24 +1061,122 @@ async def my_agent(ctx: JobContext):
     ctx.log_context_fields = {"room": ctx.room.name}
 
     user_id = DEFAULT_USER_ID
+    case_id: str | None = None
+    consent_given_at: str | None = None
+    caller_location: str | None = None
     if ctx.job.metadata:
         try:
             meta = json.loads(ctx.job.metadata)
             user_id = meta.get("user_id", DEFAULT_USER_ID)
+            case_id = meta.get("case_id")
+            consent_given_at = meta.get("consent_given_at")
+            caller_location = meta.get("caller_location")
         except json.JSONDecodeError:
             logger.warning("Invalid job metadata; using default user_id")
 
+    voice_state = VoiceSessionState(metrics=MetricsTracker())
+    minimax_tts = build_minimax_tts(state=voice_state)
+
     session = AgentSession(
-        stt=inference.STT(model="deepgram/nova-3", language="multi"),
-        tts=inference.TTS(
-            model="cartesia/sonic-3", voice="9626c31c-bec5-4cca-baa8-f8ba9e84c8bc"
-        ),
+        stt=LoggingSTT(state=voice_state, tts=minimax_tts),
+        tts=minimax_tts,
         turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
         preemptive_generation=True,
     )
 
-    assistant = Assistant(room=ctx.room, user_id=user_id)
+    assistant = Assistant(
+        room=ctx.room,
+        user_id=user_id,
+        voice_state=voice_state,
+        case_id=case_id,
+        consent_given_at=consent_given_at,
+        caller_location=caller_location,
+    )
+    assistant.bind_tts(minimax_tts)
+
+    setup_document_frame_handler(
+        ctx.room,
+        on_frame=assistant._on_document_frame,
+    )
+
+    @session.on("user_input_transcribed")
+    def _on_user_transcribed(ev: UserInputTranscribedEvent) -> None:
+        if not ev.is_final:
+            return
+        lang = resolve_caller_language(
+            stt_language=str(ev.language) if ev.language else None,
+            transcript=ev.transcript,
+            current=voice_state.caller_language,
+        )
+        language_changed = sync_caller_language(voice_state, lang, tts=minimax_tts)
+        assistant._language = lang
+        assistant._case_data["language"] = lang
+        assistant._redacting_llm.set_language(lang)
+        assistant._persistence.set_language(lang)
+        if language_changed:
+            assistant.update_instructions(_instructions_for_language(lang))
+        voice_state.message_type = "default"
+        assistant._turn += 1
+        assistant._last_user_utterance = ev.transcript
+
+        async def _after_transcript() -> None:
+            await assistant._append_transcript(
+                "caller", ev.transcript, lang, assistant._turn
+            )
+            await assistant._auto_extract_and_save(ev.transcript, lang)
+            await assistant._maybe_capture_document(ev.transcript)
+            await maybe_validate_turn(
+                turn=assistant._turn,
+                case_id=assistant._case_id,
+                caller_id=assistant._user_id,
+                last_user_utterance=assistant._last_user_utterance,
+                last_agent_utterance=assistant._last_agent_utterance,
+                case_state=assistant._case_data,
+                language=lang,
+            )
+
+        assistant._spawn(_after_transcript())
+
+    @session.on("conversation_item_added")
+    def _on_conversation_item(ev) -> None:
+        item = ev.item
+        if not isinstance(item, ChatMessage) or item.role != "assistant":
+            return
+        text = Assistant._message_text(item)
+        if not text:
+            return
+        assistant._last_agent_utterance = text
+
+        async def _persist_agent_line() -> None:
+            await assistant._append_transcript(
+                "aria",
+                text,
+                assistant._language,
+                assistant._turn,
+            )
+
+        assistant._spawn(_persist_agent_line())
+
+    @session.on("close")
+    def _on_session_close(_ev) -> None:
+        assistant._spawn(assistant._finalize_post_call())
+
+    @session.on("agent_state_changed")
+    def _on_agent_state_changed(ev) -> None:
+        if ev.new_state == "speaking":
+            apply_tts_options(minimax_tts, voice_state)
+            log_tts_request(
+                voice_id=voice_state.voice_id_for(),
+                language=voice_state.caller_language,
+                emotion=select_emotion(voice_state.message_type),
+                text_len=0,
+            )
+        if ev.old_state == "speaking" and voice_state.message_type != "default":
+            voice_state.message_type = "default"
+            apply_tts_options(minimax_tts, voice_state)
+        if ev.new_state == "listening" and voice_state.metrics:
+            voice_state.metrics.end_turn()
 
     await session.start(
         agent=assistant,
@@ -361,14 +1192,6 @@ async def my_agent(ctx: JobContext):
     )
 
     await ctx.connect()
-
-    await session.generate_reply(
-        instructions=(
-            "Greet the caller warmly in one sentence in Spanish or English based on "
-            "their language. Introduce yourself as Aria from Caseflow and ask what "
-            "happened. Invite them to use video if they have documents to show."
-        )
-    )
 
 
 if __name__ == "__main__":

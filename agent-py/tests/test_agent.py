@@ -62,7 +62,7 @@ async def test_grounding() -> None:
             Assistant,
             {
                 "recall_case_data": lambda: "No case data saved yet.",
-                "search_legal_knowledge": lambda: "No relevant legal knowledge found.",
+                "retrieve_state_law": lambda: "No state law found for that jurisdiction.",
             },
         ):
             # Run an agent turn following the user's request for information about their birth city (not known by the agent)

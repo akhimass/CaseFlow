@@ -1,3 +1,9 @@
+import {
+  CONSUMER_PAGE_DESCRIPTION,
+  CONSUMER_PAGE_TITLE,
+  START_CASE_CTA,
+} from '@/lib/consumer-copy';
+
 export interface AppConfig {
   pageTitle: string;
   pageDescription: string;
@@ -31,9 +37,8 @@ export interface AppConfig {
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {
   companyName: 'Caseflow',
-  pageTitle: 'Caseflow — Multilingual PI Video Intake',
-  pageDescription:
-    'Multilingual video intake for personal injury cases. Aria conducts intake in Spanish or English, parses documents live, and matches callers to firms.',
+  pageTitle: CONSUMER_PAGE_TITLE,
+  pageDescription: CONSUMER_PAGE_DESCRIPTION,
 
   supportsChatInput: true,
   supportsVideoInput: true,
@@ -41,10 +46,10 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   isPreConnectBufferEnabled: true,
 
   logo: '/caseflow-mark.svg',
-  accent: '#1e3a5f',
+  accent: '#0a0a0a',
   logoDark: '/caseflow-mark.svg',
-  accentDark: '#e8a838',
-  startButtonText: 'Start intake',
+  accentDark: '#0a0a0a',
+  startButtonText: START_CASE_CTA,
 
   agentName: process.env.AGENT_NAME ?? undefined,
   sandboxId: undefined,

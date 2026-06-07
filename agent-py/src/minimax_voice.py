@@ -1,0 +1,351 @@
+"""MiniMax STT/TTS helpers, emotion routing, and logging wrappers."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
+import logging
+import os
+import re
+import time
+from dataclasses import dataclass, field
+from typing import Literal
+
+from livekit.agents import APIConnectOptions, inference, stt
+from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN, NotGivenOr
+from livekit.plugins import minimax
+
+from metrics import MetricsTracker
+
+logger = logging.getLogger("caseflow.minimax")
+
+MessageType = Literal["default", "empathetic", "reassuring"]
+CallerLanguage = Literal["en", "es"]
+MULTILINGUAL_STT_LANGUAGE = "multi"
+
+def pronunciation_tone_entries(state: VoiceSessionState | None = None) -> list[str]:
+    merged = dict(PI_PRONUNCIATION)
+    if state:
+        for key, phrase in state.extra_pronunciations.items():
+            merged.setdefault(phrase.lower(), [syllabify_phrase(phrase)])
+    return [f"{phrase}/{' '.join(parts)}" for phrase, parts in merged.items()]
+
+
+def syllabify_phrase(phrase: str) -> str:
+    words = re.findall(r"[a-zA-Záéíóúñü]+", phrase)
+    return "/".join(words) if words else phrase
+
+
+PI_PRONUNCIATION: dict[str, list[str]] = {
+    "latigazo cervical": ["latigazo/la-ti-ga-zo", "cervical/ser-vi-cal"],
+    "resonancia magnética": ["resonancia/re-so-nan-cia", "magnética/mag-ne-ti-ca"],
+    "subrogation": ["subrogation/sub-ro-ga-tion"],
+    "statute of limitations": ["statute/sta-tute", "limitations/li-mi-ta-tions"],
+    "demand letter": ["demand/de-mand", "letter/let-ter"],
+}
+
+
+def select_emotion(message_type: MessageType) -> str:
+    if message_type == "empathetic":
+        return "calm"
+    if message_type == "reassuring":
+        return "calm"
+    return os.getenv("MINIMAX_EMOTION", "neutral") or "neutral"
+
+
+def select_speed(message_type: MessageType) -> float:
+    if message_type == "empathetic":
+        return float(os.getenv("MINIMAX_EMPATHY_SPEED", "0.88"))
+    if message_type == "reassuring":
+        return float(os.getenv("MINIMAX_REASSURE_SPEED", "1.02"))
+    return float(os.getenv("MINIMAX_SPEED", "1.0"))
+
+
+def select_intensity(message_type: MessageType) -> int | None:
+    if message_type == "empathetic":
+        return int(os.getenv("MINIMAX_EMPATHY_INTENSITY", "-20"))
+    if message_type == "reassuring":
+        return int(os.getenv("MINIMAX_REASSURE_INTENSITY", "10"))
+    return None
+
+
+def language_boost_for(code: str, *, confirmed: bool) -> str | None:
+    if not confirmed:
+        return "auto"
+    if code.startswith("es"):
+        return "Spanish"
+    if code.startswith("en"):
+        return "English"
+    return "auto"
+
+
+def normalize_lang(code: str | None) -> CallerLanguage | None:
+    if not code:
+        return None
+    base = str(code).lower().split("-")[0]
+    if base in ("en", "es"):
+        return base  # type: ignore[return-value]
+    return None
+
+
+def detect_language_from_text(text: str) -> CallerLanguage | None:
+    lower = text.lower()
+    if re.search(r"[áéíóúñ¿¡]", lower) or any(
+        w in lower
+        for w in ("hola", "gracias", "accidente", "abogado", "seguro", "me chocaron")
+    ):
+        return "es"
+    if re.search(r"[a-z]", lower):
+        return "en"
+    return None
+
+
+def resolve_caller_language(
+    *,
+    stt_language: str | None = None,
+    transcript: str | None = None,
+    current: str = "en",
+) -> CallerLanguage:
+    return (
+        normalize_lang(stt_language)
+        or (detect_language_from_text(transcript) if transcript else None)
+        or normalize_lang(current)
+        or "en"
+    )
+
+
+def sync_caller_language(
+    state: VoiceSessionState,
+    lang: CallerLanguage,
+    *,
+    tts: minimax.TTS | None = None,
+) -> bool:
+    """Update session language and TTS voice/boost. Returns True when language changed."""
+    previous = state.caller_language
+    changed = lang != previous or not state.language_confirmed
+    state.caller_language = lang
+    state.language_confirmed = True
+    if tts is not None:
+        apply_tts_options(tts, state)
+    if changed:
+        logger.info(
+            "CASEFLOW_LANGUAGE %s",
+            json.dumps(
+                {
+                    "language": lang,
+                    "voice_id": state.voice_id_for(lang),
+                    "language_boost": language_boost_for(lang, confirmed=True),
+                    "previous": previous if previous != lang else None,
+                },
+                ensure_ascii=False,
+            ),
+        )
+    return changed
+
+
+def inference_model_name(env_value: str, *, prefix: str = "minimax") -> str:
+    value = env_value.strip()
+    if not value:
+        return f"{prefix}/speech-2.8-hd"
+    if "/" in value:
+        return value
+    return f"{prefix}/{value}"
+
+
+@dataclass
+class VoiceSessionState:
+    caller_language: CallerLanguage = "en"
+    language_confirmed: bool = False
+    message_type: MessageType = "default"
+    metrics: MetricsTracker | None = None
+    extra_pronunciations: dict[str, str] = field(default_factory=dict)
+
+    def voice_id_for(self, lang: str | None = None) -> str:
+        code = normalize_lang(lang) or self.caller_language
+        if code == "es":
+            return os.getenv("MINIMAX_VOICE_ID_ES", "Spanish_SereneWoman")
+        return os.getenv("MINIMAX_VOICE_ID_EN", "voice_agent_Female_Phone_4")
+
+
+def apply_tts_options(tts_engine: minimax.TTS, state: VoiceSessionState) -> None:
+    tts_engine.update_options(
+        voice=state.voice_id_for(),
+        emotion=select_emotion(state.message_type),
+        speed=select_speed(state.message_type),
+        intensity=select_intensity(state.message_type),
+        language_boost=language_boost_for(
+            state.caller_language, confirmed=state.language_confirmed
+        ),
+        pronunciation_dict={"tone": pronunciation_tone_entries(state)},
+    )
+
+
+def build_minimax_tts(*, state: VoiceSessionState) -> minimax.TTS:
+    return minimax.TTS(
+        model=os.getenv("MINIMAX_TTS_MODEL", "speech-2.8-hd"),
+        voice=state.voice_id_for(),
+        speed=select_speed(state.message_type),
+        vol=float(os.getenv("MINIMAX_VOLUME", "1.0")),
+        pitch=int(os.getenv("MINIMAX_PITCH", "0")),
+        emotion=select_emotion(state.message_type),
+        intensity=select_intensity(state.message_type),
+        language_boost=language_boost_for(
+            state.caller_language, confirmed=state.language_confirmed
+        ),
+        pronunciation_dict={"tone": pronunciation_tone_entries(state)},
+        audio_format="pcm",
+        sample_rate=24000,
+        text_pacing=True,
+    )
+
+
+def build_minimax_stt() -> inference.STT:
+    model = inference_model_name(os.getenv("MINIMAX_STT_MODEL", "speech-2.8-hd"))
+    return inference.STT(model=model, language=MULTILINGUAL_STT_LANGUAGE)
+
+
+class LoggingSTT(stt.STT):
+    """MiniMax STT through LiveKit Inference with transcript and language sync."""
+
+    def __init__(
+        self, *, state: VoiceSessionState, tts: minimax.TTS | None = None
+    ) -> None:
+        super().__init__(
+            capabilities=stt.STTCapabilities(streaming=True, interim_results=True)
+        )
+        self._state = state
+        self._tts = tts
+        self._inner = build_minimax_stt()
+
+    @property
+    def model(self) -> str:
+        return inference_model_name(os.getenv("MINIMAX_STT_MODEL", "speech-2.8-hd"))
+
+    @property
+    def provider(self) -> str:
+        return "MiniMax"
+
+    async def _recognize_impl(
+        self,
+        buffer,
+        *,
+        language: NotGivenOr[str] = NOT_GIVEN,
+        conn_options: APIConnectOptions,
+    ) -> stt.SpeechEvent:
+        return await self._inner.recognize(
+            buffer,
+            language=MULTILINGUAL_STT_LANGUAGE,
+            conn_options=conn_options,
+        )
+
+    def stream(
+        self,
+        *,
+        language: NotGivenOr[str] = NOT_GIVEN,
+        conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
+    ) -> stt.RecognizeStream:
+        return _LoggingRecognizeStream(
+            stt=self,
+            inner=self._inner.stream(
+                language=MULTILINGUAL_STT_LANGUAGE, conn_options=conn_options
+            ),
+            state=self._state,
+        )
+
+
+class _LoggingRecognizeStream(stt.RecognizeStream):
+    def __init__(
+        self,
+        *,
+        stt: LoggingSTT,
+        inner: stt.RecognizeStream,
+        state: VoiceSessionState,
+    ) -> None:
+        super().__init__(stt=stt, conn_options=inner._conn_options, sample_rate=16000)
+        self._inner = inner
+        self._state = state
+        self._speech_start: float | None = None
+
+    async def _run(self) -> None:
+        async def pump_input() -> None:
+            async for item in self._input_ch:
+                if isinstance(item, self._FlushSentinel):
+                    self._inner.flush()
+                else:
+                    self._inner.push_frame(item)
+
+        pump_task = asyncio.create_task(pump_input())
+        try:
+            async for event in self._inner:
+                if event.type == stt.SpeechEventType.START_OF_SPEECH:
+                    self._speech_start = time.perf_counter()
+                    if self._state.metrics:
+                        self._state.metrics.begin_turn().mark_user_speech_end()
+                if (
+                    event.type == stt.SpeechEventType.FINAL_TRANSCRIPT
+                    and event.alternatives
+                ):
+                    alt = event.alternatives[0]
+                    lang = resolve_caller_language(
+                        stt_language=str(alt.language) if alt.language else None,
+                        transcript=alt.text,
+                        current=self._state.caller_language,
+                    )
+                    sync_caller_language(self._state, lang, tts=self._stt._tts)
+                    latency_ms = (
+                        (time.perf_counter() - self._speech_start) * 1000
+                        if self._speech_start
+                        else None
+                    )
+                    logger.info(
+                        "CASEFLOW_STT %s",
+                        json.dumps(
+                            {
+                                "model": self._stt.model,
+                                "language": lang,
+                                "latency_ms": round(latency_ms or 0, 1),
+                                "transcript": alt.text,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+                    if self._state.metrics and self._state.metrics.current:
+                        self._state.metrics.current.mark_stt_final(
+                            model=self._stt.model,
+                            language=lang,
+                            transcript=alt.text,
+                        )
+                self._event_ch.send_nowait(event)
+        finally:
+            pump_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pump_task
+            await self._inner.aclose()
+
+
+def log_tts_request(
+    *,
+    voice_id: str,
+    language: str,
+    emotion: str,
+    text_len: int,
+    first_audio_ms: float | None = None,
+    total_ms: float | None = None,
+) -> None:
+    logger.info(
+        "CASEFLOW_TTS %s",
+        json.dumps(
+            {
+                "voice_id": voice_id,
+                "language": language,
+                "emotion": emotion,
+                "text_len": text_len,
+                "first_audio_ms": round(first_audio_ms or 0, 1)
+                if first_audio_ms
+                else None,
+                "total_generation_ms": round(total_ms or 0, 1) if total_ms else None,
+            },
+            ensure_ascii=False,
+        ),
+    )

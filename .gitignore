@@ -24,3 +24,11 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+
+# Read-only reference clone (local only)
+firstcall-reference/
+
+# Human scratch space
+notes/*
+!notes/.gitkeep
+.vercel

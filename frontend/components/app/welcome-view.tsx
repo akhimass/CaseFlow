@@ -34,7 +34,7 @@ export const WelcomeView = ({
         <WelcomeImage />
 
         <p className="text-foreground max-w-prose pt-1 leading-6 font-medium">
-          Chat live with your voice AI agent
+          Talk with Aria about your injury case — in Spanish or English, on live video.
         </p>
 
         <Button
@@ -46,18 +46,10 @@ export const WelcomeView = ({
         </Button>
       </section>
 
-      <div className="fixed bottom-5 left-0 flex w-full items-center justify-center">
+      <div className="fixed bottom-5 left-0 flex w-full items-center justify-center px-6">
         <p className="text-muted-foreground max-w-prose pt-1 text-xs leading-5 font-normal text-pretty md:text-sm">
-          Need help getting set up? Check out the{' '}
-          <a
-            target="_blank"
-            rel="noopener noreferrer"
-            href="https://docs.livekit.io/agents/start/voice-ai/"
-            className="underline"
-          >
-            Voice AI quickstart
-          </a>
-          .
+          Caseflow is not a law firm and does not provide legal advice. Your conversation helps
+          match you with a participating personal injury firm.
         </p>
       </div>
     </div>

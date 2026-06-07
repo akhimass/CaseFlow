@@ -10,6 +10,7 @@ import {
 } from '@/components/agents-ui/agent-control-bar';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { MossResultsPanel } from '@/components/app/moss-results-panel';
+import { useDocumentCapture } from '@/hooks/useDocumentCapture';
 import { useMossContextEvents } from '@/hooks/useMossContextEvents';
 import { cn } from '@/lib/shadcn/utils';
 import { TileLayout } from './tile-view';
@@ -184,6 +185,7 @@ export function AgentSessionView_01({
   const { state: agentState } = useAgent();
   // Live "Knowledge Matches" surfaced from the agent's `moss_context` data messages.
   const mossEvents = useMossContextEvents();
+  useDocumentCapture();
 
   const controls: AgentControlBarControls = {
     leave: true,

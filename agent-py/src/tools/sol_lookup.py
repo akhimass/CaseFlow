@@ -1,16 +1,13 @@
-"""Statute-of-limitations lookup for PI intake."""
-
 from __future__ import annotations
 
 from datetime import date
 
 SOL_TABLE: dict[str, dict[str, float | int]] = {
-    "CA": {"sol_years": 2.0, "govt_notice_days": 180},
-    "TX": {"sol_years": 2.0, "govt_notice_days": 180},
-    "FL": {"sol_years": 4.0, "govt_notice_days": 180},
-    "NY": {"sol_years": 3.0, "govt_notice_days": 90},
+    "CA": {"sol_years": 2.0},
+    "TX": {"sol_years": 2.0},
+    "FL": {"sol_years": 4.0},
 }
-DEFAULT_SOL = {"sol_years": 2.0, "govt_notice_days": 180}
+DEFAULT_SOL = {"sol_years": 2.0}
 
 
 def _add_years(base_date: date, years: float) -> date:
@@ -30,7 +27,6 @@ def check_sol(
     plaintiff_age: int = 30,
     defendant_type: str = "private",
 ) -> dict:
-    """Return SoL viability for a PI matter."""
     accident = date.fromisoformat(accident_date)
     today = date.today()
     state_code = state.strip().upper()
@@ -45,16 +41,12 @@ def check_sol(
         tolling_applied = False
 
     days_remaining = (deadline - today).days
-    viable = days_remaining >= 0
-
     return {
-        "viable": viable,
+        "viable": days_remaining >= 0,
         "sol_deadline": deadline.isoformat(),
         "days_remaining": days_remaining,
         "tolling_applied": tolling_applied,
+        "defendant_type": defendant_type,
         "rag_source": "fallback_table",
-        "notes": (
-            f"{state_code} PI filing window: {sol_years} years. "
-            f"{days_remaining} days remaining."
-        ),
+        "notes": f"{state_code} PI filing window: {sol_years} years. {days_remaining} days remaining.",
     }

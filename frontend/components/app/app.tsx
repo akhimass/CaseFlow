@@ -11,6 +11,7 @@ import { ViewController } from '@/components/app/view-controller';
 import { Toaster } from '@/components/ui/sonner';
 import { useAgentErrors } from '@/hooks/useAgentErrors';
 import { useDebugMode } from '@/hooks/useDebug';
+import { buildAgentMetadata } from '@/lib/privacy-token';
 import { getSandboxTokenSource } from '@/lib/utils';
 
 const IN_DEVELOPMENT = process.env.NODE_ENV !== 'production';
@@ -28,9 +29,24 @@ interface AppProps {
 
 export function App({ appConfig }: AppProps) {
   const tokenSource = useMemo(() => {
-    return typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string'
-      ? getSandboxTokenSource(appConfig)
-      : TokenSource.endpoint('/api/token');
+    if (typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string') {
+      return getSandboxTokenSource(appConfig);
+    }
+    return TokenSource.custom(async () => {
+      const agentMetadata = buildAgentMetadata();
+      const res = await fetch('/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_config: appConfig.agentName
+            ? { agents: [{ agent_name: appConfig.agentName }] }
+            : undefined,
+          agent_metadata: agentMetadata,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to fetch connection details');
+      return res.json();
+    });
   }, [appConfig]);
 
   const session = useSession(

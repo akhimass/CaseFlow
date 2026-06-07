@@ -116,9 +116,101 @@
 
 @layer base {
   * {
-    @apply border-foreground/20 outline-ring/50;
+    border-color: var(--border);
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: var(--background);
+    color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
   }
+}
+
+@keyframes caseflow-wave {
+  from {
+    transform: scaleY(0.45);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes caseflow-transcript-scroll {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+@theme inline {
+  --animate-caseflow-transcript: caseflow-transcript-scroll 28s linear infinite;
+}
+
+/* Live citation pulse — a card pulses gold for ~3s when Aria cites it. */
+@keyframes caseflow-cite-pulse {
+  0% {
+    outline-color: rgba(245, 158, 11, 0);
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+  }
+  7% {
+    outline-color: rgba(245, 158, 11, 1);
+    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.25);
+  }
+  90% {
+    outline-color: rgba(245, 158, 11, 1);
+    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.12);
+  }
+  100% {
+    outline-color: rgba(245, 158, 11, 0);
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+  }
+}
+
+.caseflow-cite-pulse {
+  outline: 2px solid rgba(245, 158, 11, 0);
+  outline-offset: 2px;
+  border-radius: 0.375rem;
+  animation: caseflow-cite-pulse 3s ease-in-out forwards;
+}
+
+@keyframes caseflow-cite-pill {
+  0% {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  10% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.caseflow-cite-pill {
+  animation: caseflow-cite-pill 3s ease-in-out forwards;
+}
+
+/* Caseflow Decision card cross-fade when re-synthesized. */
+@keyframes caseflow-decision-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.caseflow-decision-in {
+  animation: caseflow-decision-in 400ms ease-out;
+}
+
+.caseflow-decision-body-in {
+  animation: caseflow-decision-in 300ms ease-out;
 }

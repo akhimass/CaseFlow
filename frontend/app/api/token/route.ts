@@ -27,12 +27,6 @@ const USER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
 export const revalidate = 0;
 
 export async function POST(req: Request) {
-  if (process.env.NODE_ENV !== 'development') {
-    throw new Error(
-      'THIS API ROUTE IS INSECURE. DO NOT USE THIS ROUTE IN PRODUCTION WITHOUT AN AUTHENTICATION LAYER.'
-    );
-  }
-
   try {
     if (LIVEKIT_URL === undefined) {
       throw new Error('LIVEKIT_URL is not defined');
@@ -64,7 +58,14 @@ export async function POST(req: Request) {
     if (roomConfig.agents.length === 0) {
       roomConfig.agents.push(new RoomAgentDispatch({ agentName: AGENT_NAME ?? '' }));
     }
-    const dispatchMetadata = JSON.stringify({ user_id: userId });
+    const agentMetadata =
+      body?.agent_metadata && typeof body.agent_metadata === 'object'
+        ? (body.agent_metadata as Record<string, string>)
+        : {};
+    const dispatchMetadata = JSON.stringify({
+      user_id: userId,
+      ...agentMetadata,
+    });
     for (const agent of roomConfig.agents) {
       if (!agent.agentName && AGENT_NAME) {
         agent.agentName = AGENT_NAME;

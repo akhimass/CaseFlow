@@ -1,10 +1,10 @@
 import { headers } from 'next/headers';
-import { App } from '@/components/app/app';
+import { IntakeApp } from '@/components/app/intake-app';
 import { getAppConfig } from '@/lib/utils';
 
 export default async function IntakePage() {
   const hdrs = await headers();
   const appConfig = await getAppConfig(hdrs);
 
-  return <App appConfig={appConfig} />;
+  return <IntakeApp appConfig={appConfig} />;
 }

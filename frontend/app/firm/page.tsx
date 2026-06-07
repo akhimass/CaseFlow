@@ -1,23 +1,39 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useCaseflowEvents, type CaseRecord } from '@/hooks/useCaseflowEvents';
-import { MossResultsPanel } from '@/components/app/moss-results-panel';
+import { useRouter } from 'next/navigation';
+import { AwsArtifactsPanel } from '@/components/firm/aws-artifacts-panel';
+import { CaseflowDecisionCard } from '@/components/firm/caseflow-decision-card';
+import { ConsistencyAuditPanel } from '@/components/firm/consistency-audit-panel';
+import { DocumentsPanel } from '@/components/firm/documents-panel';
+import { GatewayMetricsPanel } from '@/components/firm/gateway-metrics-panel';
+import { LiveTranscriptPanel } from '@/components/firm/live-transcript-panel';
+import { MossIntelligencePanel } from '@/components/firm/moss-intelligence-panel';
+import { PrivacyPanel } from '@/components/firm/privacy-panel';
 import { Button } from '@/components/ui/button';
+import { type CaseRecord, useCaseflowEvents } from '@/hooks/useCaseflowEvents';
+import { type FirmSession, caseVisibleToFirm } from '@/lib/firm-session';
 
 function ScoreGauge({ score }: { score: number }) {
-  const color =
-    score >= 70 ? 'text-emerald-600' : score >= 40 ? 'text-amber-600' : 'text-red-600';
+  const color = score >= 70 ? 'text-emerald-600' : score >= 40 ? 'text-amber-600' : 'text-red-600';
   return (
     <div className={`text-5xl font-bold tabular-nums ${color}`}>
       {score}
-      <span className="text-lg font-normal text-muted-foreground">/100</span>
+      <span className="text-muted-foreground text-lg font-normal">/100</span>
     </div>
   );
 }
 
-function CaseDetail({ record }: { record: CaseRecord }) {
+function CaseDetail({
+  record,
+  revealed,
+  onReveal,
+}: {
+  record: CaseRecord;
+  revealed: boolean;
+  onReveal: () => void;
+}) {
   const strength = Number(record.score ?? record.case_strength ?? 0);
   const matches = (record.matches as Array<Record<string, unknown>>) ?? [];
   const documents = record.documents as Record<string, Record<string, unknown>> | undefined;
@@ -25,26 +41,51 @@ function CaseDetail({ record }: { record: CaseRecord }) {
 
   return (
     <div className="space-y-6">
+      <PrivacyPanel record={record} revealed={revealed} onReveal={onReveal} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <LiveTranscriptPanel record={record} />
+        <ConsistencyAuditPanel record={record} />
+      </div>
+
+      <MossIntelligencePanel record={record} />
+
+      <CaseflowDecisionCard record={record} />
+
+      <DocumentsPanel record={record} />
+
+      <AwsArtifactsPanel record={record} />
+
+      <GatewayMetricsPanel collapsed />
+
       <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-lg border border-border p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="border-border rounded-lg border p-4">
+          <div className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
             Case strength
           </div>
           <ScoreGauge score={strength} />
         </div>
-        <div className="rounded-lg border border-border p-4 sm:col-span-2">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="border-border rounded-lg border p-4 sm:col-span-2">
+          <div className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
             Case fields
           </div>
           <dl className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
-            {['caller_id', 'state', 'accident_type', 'fault_claim', 'injuries', 'language'].map(
-              (key) =>
-                record[key] ? (
-                  <div key={key}>
-                    <dt className="text-muted-foreground">{key}</dt>
-                    <dd className="font-medium">{String(record[key])}</dd>
-                  </div>
-                ) : null
+            {[
+              'caller_id',
+              'caller_location',
+              'location',
+              'state',
+              'accident_type',
+              'fault_claim',
+              'injuries',
+              'language',
+            ].map((key) =>
+              record[key] ? (
+                <div key={key}>
+                  <dt className="text-muted-foreground">{key}</dt>
+                  <dd className="font-medium">{String(record[key])}</dd>
+                </div>
+              ) : null
             )}
           </dl>
         </div>
@@ -52,14 +93,14 @@ function CaseDetail({ record }: { record: CaseRecord }) {
 
       {documents && Object.keys(documents).length > 0 && (
         <div>
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Parsed documents
+          <h3 className="text-muted-foreground mb-2 text-sm font-semibold tracking-wide uppercase">
+            Parsed documents (Unsiloed)
           </h3>
           <div className="grid gap-3 sm:grid-cols-2">
             {Object.entries(documents).map(([docType, fields]) => (
-              <div key={docType} className="rounded-lg border border-border bg-card p-4">
+              <div key={docType} className="border-border bg-card rounded-lg border p-4">
                 <div className="font-medium capitalize">{docType.replace('_', ' ')}</div>
-                <pre className="mt-2 overflow-x-auto text-xs text-muted-foreground">
+                <pre className="text-muted-foreground mt-2 overflow-x-auto text-xs">
                   {JSON.stringify(fields, null, 2)}
                 </pre>
               </div>
@@ -70,28 +111,28 @@ function CaseDetail({ record }: { record: CaseRecord }) {
 
       {matches.length > 0 && (
         <div>
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          <h3 className="text-muted-foreground mb-2 text-sm font-semibold tracking-wide uppercase">
             Firm matches
           </h3>
           <div className="space-y-2">
             {matches.map((match) => (
               <div
                 key={String(match.firm_id)}
-                className="rounded-lg border border-border bg-card p-4"
+                className="border-border bg-card rounded-lg border p-4"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold">{String(match.name)}</span>
-                  <span className="text-sm tabular-nums text-primary">{String(match.score)}</span>
+                  <span className="text-primary text-sm tabular-nums">{String(match.score)}</span>
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">{String(match.reasoning)}</p>
+                <p className="text-muted-foreground mt-1 text-sm">{String(match.reasoning)}</p>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      <div className="rounded-lg border border-dashed border-border p-4">
-        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="border-border rounded-lg border border-dashed p-4">
+        <div className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
           Outbound call status
         </div>
         <p className="mt-1 text-sm">
@@ -107,50 +148,93 @@ function CaseDetail({ record }: { record: CaseRecord }) {
 }
 
 export default function FirmPage() {
+  const router = useRouter();
   const { cases, connected } = useCaseflowEvents();
+  const [session, setSession] = useState<FirmSession | null | undefined>(undefined);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    fetch('/api/firm/session')
+      .then((res) => (res.ok ? res.json() : { session: null }))
+      .then((data) => setSession(data.session ?? null))
+      .catch(() => setSession(null));
+  }, []);
+
+  useEffect(() => {
+    if (session === null) router.replace('/firm/login');
+  }, [session, router]);
+
+  const firmCases = useMemo(() => {
+    if (!session) return [];
+    return cases.filter((record) => caseVisibleToFirm(record, session.firm_id));
+  }, [cases, session]);
 
   const selected = useMemo(
-    () => cases.find((c) => c.case_id === selectedId) ?? cases[0],
-    [cases, selectedId]
+    () => firmCases.find((c) => c.case_id === selectedId) ?? firmCases[0],
+    [firmCases, selectedId]
   );
 
+  if (session === undefined) {
+    return (
+      <div className="text-muted-foreground flex min-h-svh items-center justify-center text-sm">
+        Loading firm session…
+      </div>
+    );
+  }
+
+  if (!session) return null;
+
   return (
-    <div className="min-h-svh bg-background">
-      <header className="border-b border-border px-6 py-4">
+    <div className="bg-background min-h-svh">
+      <header className="border-border border-b px-6 py-4">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <div>
             <Link href="/" className="text-lg font-semibold">
               Caseflow
             </Link>
-            <p className="text-sm text-muted-foreground">Firm dashboard · live case files</p>
+            <p className="text-muted-foreground text-sm">
+              {session.firm_name}
+              {session.city ? ` · ${session.city}` : ''} · live matched intakes
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <span
               className={`size-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-amber-500'}`}
             />
-            <span className="text-sm text-muted-foreground">
+            <span className="text-muted-foreground text-sm">
               {connected ? 'Live' : 'Reconnecting…'}
             </span>
             <Button asChild variant="outline" size="sm">
-              <Link href="/intake">New intake</Link>
+              <Link href="/admin/metrics">Metrics</Link>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                await fetch('/api/firm/logout', { method: 'POST' });
+                router.replace('/firm/login');
+              }}
+            >
+              Sign out
             </Button>
           </div>
         </div>
       </header>
 
       <div className="mx-auto grid max-w-7xl gap-0 md:grid-cols-[280px_1fr]">
-        <aside className="border-b border-border p-4 md:min-h-[calc(100svh-73px)] md:border-b-0 md:border-r">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <aside className="border-border border-b p-4 md:min-h-[calc(100svh-73px)] md:border-r md:border-b-0">
+          <h2 className="text-muted-foreground mb-3 text-xs font-semibold tracking-wide uppercase">
             Incoming cases
           </h2>
-          {cases.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No live cases yet. Start an intake at /intake.
+          {firmCases.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No matched intakes yet. Open /intake/consent in another tab, enter San Francisco as
+              your location, and complete a call.
             </p>
           ) : (
             <ul className="space-y-2">
-              {cases.map((c) => (
+              {firmCases.map((c) => (
                 <li key={String(c.case_id)}>
                   <button
                     type="button"
@@ -162,7 +246,7 @@ export default function FirmPage() {
                     }`}
                   >
                     <div className="font-medium">{String(c.caller_id ?? c.case_id)}</div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-muted-foreground text-xs">
                       {String(c.last_event ?? 'intake')}
                       {c.language ? ` · ${String(c.language)}` : ''}
                     </div>
@@ -175,7 +259,15 @@ export default function FirmPage() {
 
         <main className="p-6">
           {selected ? (
-            <CaseDetail record={selected} />
+            <CaseDetail
+              record={selected}
+              revealed={revealedIds.has(String(selected.case_id))}
+              onReveal={async () => {
+                const id = String(selected.case_id);
+                await fetch(`/api/cases/${id}/reveal`, { method: 'POST' });
+                setRevealedIds((prev) => new Set(prev).add(id));
+              }}
+            />
           ) : (
             <p className="text-muted-foreground">Select a case to view details.</p>
           )}

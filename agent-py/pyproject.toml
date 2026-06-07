@@ -9,11 +9,15 @@ description = "Caseflow multilingual PI video intake agent (LiveKit + Moss)"
 requires-python = ">=3.10, <3.15"
 
 dependencies = [
-    "livekit-agents[silero,turn-detector]==1.5.16",
+    "livekit-agents[silero,turn-detector]==1.5.18",
     "livekit-plugins-ai-coustics~=0.2",
     "python-dotenv",
     "moss>=1.4",
     "httpx>=0.28",
+    "livekit-plugins-minimax-ai>=1.5.18",
+    "boto3>=1.35",
+    "markdown>=3.7",
+    "weasyprint>=63.0",
 ]
 
 [dependency-groups]

@@ -1,5 +1,5 @@
 # CLAUDE.md
 
-This project uses `AGENTS.md` instead of a `CLAUDE.md` file.
+Hackathon source of truth: @../../CLAUDE.md at the repo root.
 
-Please see @AGENTS.md in this same directory and treat its content as the primary reference for this project.
+Agent implementation details: @AGENTS.md in this directory.

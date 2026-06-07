@@ -9,10 +9,6 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  if (process.env.NODE_ENV !== 'development') {
-    return NextResponse.json({ error: 'Dev only' }, { status: 403 });
-  }
-
   const body = await req.json();
   const case_id = body?.case_id;
   const event = body?.event;

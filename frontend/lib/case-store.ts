@@ -25,13 +25,16 @@ class CaseflowStore {
 
   list() {
     return Array.from(this.cases.values()).sort(
-      (a, b) =>
-        Number(b.updated_at ?? b.timestamp ?? 0) - Number(a.updated_at ?? a.timestamp ?? 0)
+      (a, b) => Number(b.updated_at ?? b.timestamp ?? 0) - Number(a.updated_at ?? a.timestamp ?? 0)
     );
   }
 
   get(caseId: string) {
     return this.cases.get(caseId);
+  }
+
+  remove(caseId: string) {
+    this.cases.delete(caseId);
   }
 
   subscribe(listener: Listener) {

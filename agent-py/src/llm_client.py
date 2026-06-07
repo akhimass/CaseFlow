@@ -100,9 +100,6 @@ class OpenAIChatLLM(llm.LLM):
         merged.setdefault("temperature", self._default_temperature if temperature is None else temperature)
         if self._max_tokens and "max_completion_tokens" not in merged and "max_tokens" not in merged:
             merged["max_completion_tokens"] = self._max_tokens
-        metadata = _build_metadata(self._case_id, turn_index)
-        if metadata:
-            merged["metadata"] = metadata
         return merged
 
     def chat(
@@ -159,7 +156,7 @@ class TrueFoundryLLM(llm.LLM):
         if primary_llm is None:
             primary_llm = OpenAIChatLLM(
                 api_key=_get_env("OPENAI_API_KEY", "TRUEFOUNDRY_API_KEY"),
-                model=_get_env("OPENAI_MODEL", "TRUEFOUNDRY_MODEL", default="openai/gpt-4o"),
+                model=_get_env("OPENAI_MODEL", "TRUEFOUNDRY_MODEL", default="openai/gpt-4.1-mini"),
                 provider="truefoundry",
                 default_temperature=self._primary_temperature,
                 case_id=case_id,
@@ -167,8 +164,7 @@ class TrueFoundryLLM(llm.LLM):
                 label="truefoundry",
                 base_url=_get_env(
                     "OPENAI_BASE_URL",
-                    "TRUEFOUNDRY_GATEWAY_URL",
-                    default="https://gateway.truefoundry.ai/api/llm/openai",
+                    default="https://gateway.truefoundry.ai/openai",
                 ),
             )
 
@@ -229,10 +225,6 @@ class TrueFoundryLLM(llm.LLM):
             "temperature": self._primary_temperature if temperature is None else temperature,
             "max_completion_tokens": self._max_tokens,
         }
-        metadata = _build_metadata(case_id or self._case_id, turn_index or self._turn_index(chat_ctx))
-        if metadata:
-            merged_extra["metadata"] = metadata
-
         if parallel_tool_calls is not None:
             merged_extra["parallel_tool_calls"] = parallel_tool_calls
         if tool_choice is not None:
@@ -258,10 +250,6 @@ class TrueFoundryLLM(llm.LLM):
         merged = dict({} if extra_kwargs is NOT_GIVEN else extra_kwargs)
         merged.setdefault("temperature", self._primary_temperature)
         merged.setdefault("max_completion_tokens", self._max_tokens)
-
-        metadata = _build_metadata(self._case_id, self._turn_index(chat_ctx))
-        if metadata:
-            merged.setdefault("metadata", metadata)
 
         if parallel_tool_calls is not NOT_GIVEN:
             merged["parallel_tool_calls"] = parallel_tool_calls
@@ -303,12 +291,10 @@ class TrueFoundryLLM(llm.LLM):
         *,
         temperature: float,
     ) -> str:
-        primary_client = self._primary_llm._client  # noqa: SLF001
-        fallback_client = self._fallback_llm._client  # noqa: SLF001
+        primary_client = self._primary_llm._ensure_client()  # noqa: SLF001
+        fallback_client = self._fallback_llm._ensure_client()  # noqa: SLF001
         primary_model = self._primary_llm.model
         fallback_model = self._fallback_llm.model
-        metadata = _build_metadata(self._case_id, None)
-
         for client, model, provider in (
             (primary_client, primary_model, "truefoundry"),
             (fallback_client, fallback_model, "openai"),
@@ -319,7 +305,6 @@ class TrueFoundryLLM(llm.LLM):
                     model=model,
                     temperature=temperature,
                     max_completion_tokens=self._max_tokens,
-                    metadata=metadata or None,
                     timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
                 )
                 content = response.choices[0].message.content or ""
@@ -339,5 +324,18 @@ class TrueFoundryLLM(llm.LLM):
         await self._router.aclose()
 
 
+def dialogue_llm_configured() -> bool:
+    return bool(_get_env("TRUEFOUNDRY_API_KEY", "OPENAI_API_KEY"))
+
+
 def build_caseflow_llm(*, case_id: str | None = None) -> TrueFoundryLLM:
     return TrueFoundryLLM(case_id=case_id)
+
+
+def build_dialogue_llm(*, case_id: str | None = None) -> llm.LLM:
+    """Primary intake dialogue LLM — TrueFoundry when configured, else LiveKit Inference."""
+    if dialogue_llm_configured():
+        return build_caseflow_llm(case_id=case_id)
+    return inference.LLM(
+        model=_get_env("LIVEKIT_INFERENCE_MODEL", default="openai/gpt-5.2-chat-latest")
+    )

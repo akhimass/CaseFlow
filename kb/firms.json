@@ -169,5 +169,64 @@
       "south san francisco",
       "oakland"
     ]
+  },
+  {
+    "firm_id": "lone_star",
+    "name": "Lone Star Injury Group",
+    "phone": "(713) 555-0120",
+    "test_phone": "+17135550120",
+    "jurisdictions": [
+      "TX"
+    ],
+    "languages": [
+      "en",
+      "es"
+    ],
+    "specialties": [
+      "auto",
+      "rear_end",
+      "mva",
+      "general_pi",
+      "t_bone"
+    ],
+    "min_strength": 30,
+    "location": "Houston, TX",
+    "service_areas": [
+      "houston",
+      "harris county",
+      "dallas",
+      "san antonio",
+      "austin",
+      "texas"
+    ]
+  },
+  {
+    "firm_id": "sunshine_fl",
+    "name": "Sunshine Injury Advocates",
+    "phone": "(305) 555-0130",
+    "test_phone": "+13055550130",
+    "jurisdictions": [
+      "FL"
+    ],
+    "languages": [
+      "en",
+      "es"
+    ],
+    "specialties": [
+      "auto",
+      "rear_end",
+      "mva",
+      "general_pi",
+      "premises"
+    ],
+    "min_strength": 30,
+    "location": "Miami, FL",
+    "service_areas": [
+      "miami",
+      "miami-dade",
+      "broward",
+      "orlando",
+      "florida"
+    ]
   }
 ]

@@ -9,8 +9,10 @@ import {
   type AgentControlBarControls,
 } from '@/components/agents-ui/agent-control-bar';
 import { Shimmer } from '@/components/ai-elements/shimmer';
+import { DocumentParsingPanel } from '@/components/app/document-parsing-panel';
 import { MossResultsPanel } from '@/components/app/moss-results-panel';
 import { useDocumentCapture } from '@/hooks/useDocumentCapture';
+import { useDocumentParseEvents } from '@/hooks/useDocumentParseEvents';
 import { useMossContextEvents } from '@/hooks/useMossContextEvents';
 import { cn } from '@/lib/shadcn/utils';
 import { TileLayout } from './tile-view';
@@ -183,8 +185,12 @@ export function AgentSessionView_01({
   const [chatOpen, setChatOpen] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { state: agentState } = useAgent();
+  const conversationStarted = messages.some((message) => message.from?.isLocal === true);
+  const ariaActive =
+    agentState === 'listening' || agentState === 'speaking' || agentState === 'thinking';
   // Live "Knowledge Matches" surfaced from the agent's `moss_context` data messages.
   const mossEvents = useMossContextEvents();
+  const documentParseEvents = useDocumentParseEvents();
   useDocumentCapture();
 
   const controls: AgentControlBarControls = {
@@ -231,8 +237,20 @@ export function AgentSessionView_01({
       </div>
       {/* Live Knowledge Matches panel (Moss retrieval results) — renders beside the
           visualizer/transcript, inside the RoomContext provider. Hidden until matches arrive. */}
-      <div className="pointer-events-auto absolute top-0 right-0 bottom-[170px] z-[60] hidden w-full max-w-sm overflow-y-auto overscroll-contain px-4 pt-40 pb-4 md:block">
-        <MossResultsPanel events={mossEvents} />
+      <div className="pointer-events-auto absolute top-0 right-0 bottom-[170px] z-[60] w-full max-w-sm overflow-y-auto overscroll-contain px-4 pt-40 pb-4">
+        <div className="space-y-4">
+          <DocumentParsingPanel events={documentParseEvents} />
+          <MossResultsPanel events={mossEvents} hidden={!conversationStarted} />
+        </div>
+      </div>
+      <div className="pointer-events-none absolute inset-x-4 bottom-[148px] z-[55] flex justify-center md:bottom-[178px]">
+        <div className="border-border bg-background/90 text-muted-foreground pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-medium backdrop-blur-sm">
+          <span>LiveKit video</span>
+          <span>·</span>
+          <span>Deepgram nova-3 STT</span>
+          <span>·</span>
+          <span>MiniMax Speech 2.8 HD</span>
+        </div>
       </div>
       {/* Tile layout */}
       <TileLayout
@@ -255,15 +273,17 @@ export function AgentSessionView_01({
         {/* Pre-connect message */}
         {isPreConnectBufferEnabled && (
           <AnimatePresence>
-            {messages.length === 0 && (
+            {!ariaActive && messages.length === 0 && (
               <MotionMessage
                 key="pre-connect-message"
                 duration={2}
-                aria-hidden={messages.length > 0}
+                aria-hidden={ariaActive || messages.length > 0}
                 {...SHIMMER_MOTION_PROPS}
                 className="pointer-events-none mx-auto block w-full max-w-2xl pb-4 text-center text-sm font-semibold"
               >
-                {preConnectMessage}
+                {agentState === 'connecting'
+                  ? 'Aria is connecting — first cloud start can take up to 30 seconds…'
+                  : preConnectMessage}
               </MotionMessage>
             )}
           </AnimatePresence>

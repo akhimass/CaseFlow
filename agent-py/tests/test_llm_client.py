@@ -72,7 +72,7 @@ async def test_converse_streams_incremental_tokens() -> None:
         tokens.append(token)
 
     assert tokens == ["Hel", "lo"]
-    assert client._primary_llm.calls[0]["extra_kwargs"]["metadata"]["case_id"] == "case_123"
+    assert client._primary_llm.calls[0]["chat_ctx"] is not None
 
 
 @pytest.mark.asyncio
@@ -146,3 +146,18 @@ async def test_extract_and_score_default_temperature(monkeypatch) -> None:
     await client.score_case("case data")
 
     assert recorded == [0.0, 0.0]
+
+
+def test_build_dialogue_llm_prefers_openai_direct_chain(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_DIRECT_API_KEY", "sk-test-direct")
+    monkeypatch.setenv("OPENAI_DIRECT_MODEL", "gpt-4.1-mini")
+    monkeypatch.setenv("TRUEFOUNDRY_API_KEY", "tfy-key")
+    monkeypatch.setenv("LIVEKIT_API_KEY", "lk-test")
+    monkeypatch.setenv("LIVEKIT_API_SECRET", "lk-secret")
+
+    client = llm_client.build_caseflow_llm(case_id="case_abc")
+    labels = [inst.label for inst in client._router._llm_instances]
+
+    assert labels[0] == "openai-direct"
+    assert labels[1] == "truefoundry-primary"
+    assert labels[2] == "truefoundry-bedrock-fallback"

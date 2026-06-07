@@ -12,20 +12,6 @@ export function MarketingLayout({ children }: { children: ReactNode }) {
           <Link href="/" className="shrink-0" aria-label="Caseflow home">
             <Wordmark />
           </Link>
-          <nav className="hidden items-center gap-6 text-sm md:flex">
-            <Link
-              href="/intake/consent"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {START_CASE_CTA}
-            </Link>
-            <Link
-              href="/firm/login"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Firm dashboard
-            </Link>
-          </nav>
           <div className="flex items-center gap-2">
             <Button asChild variant="ghost" className="hidden sm:inline-flex">
               <Link href="/firm/login">Log in as Firm</Link>

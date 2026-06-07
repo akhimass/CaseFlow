@@ -67,7 +67,10 @@ export const getAppConfig = cache(async (headers: Headers): Promise<AppConfig> =
     }
   }
 
-  return APP_CONFIG_DEFAULTS;
+  return {
+    ...APP_CONFIG_DEFAULTS,
+    agentName: process.env.AGENT_NAME || APP_CONFIG_DEFAULTS.agentName,
+  };
 });
 
 /**

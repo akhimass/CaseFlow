@@ -42,8 +42,11 @@ class AuditStore {
   }
 
   metrics() {
-    const calls = this.records.filter((r) => r.event_type === 'gateway_call');
+    const calls = this.records.filter(
+      (r) => r.event_type === 'gateway_call' || r.event_type === 'tts_pass_through'
+    );
     const failovers = calls.filter((r) => r.failover);
+    const ttsCalls = this.records.filter((r) => r.event_type === 'tts_pass_through');
     const byModel = new Map<string, { count: number; latencySum: number }>();
 
     for (const call of calls) {
@@ -66,6 +69,7 @@ class AuditStore {
     return {
       totalCalls: calls.length,
       totalFailovers: failovers.length,
+      totalTtsAudits: ttsCalls.length,
       totalCostUsd: calls.reduce((sum, r) => sum + (r.cost_usd ?? 0), 0),
       latencyByModel,
       qualityChecks: validatorScores.length,

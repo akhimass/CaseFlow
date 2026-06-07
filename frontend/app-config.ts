@@ -51,6 +51,6 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   accentDark: '#0a0a0a',
   startButtonText: START_CASE_CTA,
 
-  agentName: process.env.AGENT_NAME ?? undefined,
+  agentName: process.env.AGENT_NAME ?? 'caseflow-agent',
   sandboxId: undefined,
 };

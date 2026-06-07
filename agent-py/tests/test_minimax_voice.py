@@ -1,11 +1,15 @@
 from minimax_voice import (
+    CASEFLOW_PI_KEYTERMS,
     VoiceSessionState,
     apply_tts_options,
     build_caseflow_stt,
+    build_caseflow_voice,
+    caseflow_stt_keyterms,
     caseflow_stt_model,
     deepgram_configured,
     detect_language_from_text,
     language_boost_for,
+    pronunciation_tone_entries,
     resolve_caller_language,
     sync_caller_language,
 )
@@ -95,3 +99,35 @@ def test_apply_tts_options_uses_confirmed_boost() -> None:
     apply_tts_options(FakeTTS(), state)  # type: ignore[arg-type]
     assert captured["language_boost"] == "Spanish"
     assert captured["voice"] == state.voice_id_for("es")
+
+
+def test_caseflow_stt_keyterms_include_demo_vocabulary() -> None:
+    terms = caseflow_stt_keyterms()
+    assert "semáforo" in terms
+    assert "luz roja" in terms
+    assert "whiplash" in terms
+    assert len(terms) >= len(CASEFLOW_PI_KEYTERMS)
+
+
+def test_caseflow_stt_keyterms_env_extension(monkeypatch) -> None:
+    monkeypatch.setenv("CASEFLOW_STT_KEYTERMS", "T-bone, concussión")
+    terms = caseflow_stt_keyterms()
+    assert "T-bone" in terms
+    assert "concussión" in terms
+
+
+def test_build_caseflow_voice_wraps_minimax(monkeypatch) -> None:
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    state = VoiceSessionState()
+    logging_tts, inner = build_caseflow_voice(state=state)
+    assert logging_tts.provider == "MiniMax"
+    assert logging_tts is not inner
+    assert logging_tts.sample_rate == inner.sample_rate
+
+
+def test_pronunciation_includes_pi_demo_terms() -> None:
+    state = VoiceSessionState()
+    tone = pronunciation_tone_entries(state)
+    joined = " ".join(tone)
+    assert "whiplash" in joined
+    assert "semáforo" in joined

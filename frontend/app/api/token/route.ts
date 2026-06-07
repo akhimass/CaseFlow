@@ -16,7 +16,7 @@ const API_KEY = process.env.LIVEKIT_API_KEY;
 const API_SECRET = process.env.LIVEKIT_API_SECRET;
 const LIVEKIT_URL = process.env.LIVEKIT_URL;
 // Agent dispatch name — must match the agent's registered name (`caseflow-agent`). See `.env.local`.
-const AGENT_NAME = process.env.AGENT_NAME;
+const AGENT_NAME = process.env.AGENT_NAME || 'caseflow-agent';
 
 // httpOnly cookie that persists a stable per-user id across visits. Stamped into the agent
 // dispatch metadata as `{ "user_id": <uuid> }` so the agent can scope case memory per user.

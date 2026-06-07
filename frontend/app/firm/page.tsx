@@ -11,6 +11,9 @@ import { GatewayMetricsPanel } from '@/components/firm/gateway-metrics-panel';
 import { LiveTranscriptPanel } from '@/components/firm/live-transcript-panel';
 import { MossIntelligencePanel } from '@/components/firm/moss-intelligence-panel';
 import { PrivacyPanel } from '@/components/firm/privacy-panel';
+import { SponsorStrip } from '@/components/firm/sponsor-strip';
+import { UnsiloedParsedPanel } from '@/components/firm/unsiloed-parsed-panel';
+import { VoiceBridgePanel } from '@/components/firm/voice-bridge-panel';
 import { Button } from '@/components/ui/button';
 import { type CaseRecord, useCaseflowEvents } from '@/hooks/useCaseflowEvents';
 import { type FirmSession, caseVisibleToFirm } from '@/lib/firm-session';
@@ -36,7 +39,6 @@ function CaseDetail({
 }) {
   const strength = Number(record.score ?? record.case_strength ?? 0);
   const matches = (record.matches as Array<Record<string, unknown>>) ?? [];
-  const documents = record.documents as Record<string, Record<string, unknown>> | undefined;
   const outbound = record.status as string | undefined;
 
   return (
@@ -48,7 +50,11 @@ function CaseDetail({
         <ConsistencyAuditPanel record={record} />
       </div>
 
+      <VoiceBridgePanel record={record} />
+
       <MossIntelligencePanel record={record} />
+
+      <UnsiloedParsedPanel record={record} />
 
       <CaseflowDecisionCard record={record} />
 
@@ -56,7 +62,7 @@ function CaseDetail({
 
       <AwsArtifactsPanel record={record} />
 
-      <GatewayMetricsPanel collapsed />
+      <GatewayMetricsPanel collapsed={false} />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="border-border rounded-lg border p-4">
@@ -90,24 +96,6 @@ function CaseDetail({
           </dl>
         </div>
       </div>
-
-      {documents && Object.keys(documents).length > 0 && (
-        <div>
-          <h3 className="text-muted-foreground mb-2 text-sm font-semibold tracking-wide uppercase">
-            Parsed documents (Unsiloed)
-          </h3>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {Object.entries(documents).map(([docType, fields]) => (
-              <div key={docType} className="border-border bg-card rounded-lg border p-4">
-                <div className="font-medium capitalize">{docType.replace('_', ' ')}</div>
-                <pre className="text-muted-foreground mt-2 overflow-x-auto text-xs">
-                  {JSON.stringify(fields, null, 2)}
-                </pre>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {matches.length > 0 && (
         <div>
@@ -198,6 +186,7 @@ export default function FirmPage() {
               {session.city ? ` · ${session.city}` : ''} · live matched intakes
             </p>
           </div>
+          <SponsorStrip compact />
           <div className="flex items-center gap-2">
             <span
               className={`size-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-amber-500'}`}

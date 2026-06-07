@@ -37,20 +37,24 @@ from citations import filter_citation_stream
 from consistency import audit_utterance
 from doc_intent import DocumentCaptureCoordinator, detect_document_intent
 from document_generator import generate_intake_summary, generate_post_match_documents
-from gateway import gateway_configured, llm_configured
+from gateway import _record_audit, gateway_configured, llm_configured, tts as gateway_tts
 from metrics import MetricsTracker
 from minimax_voice import (
     LoggingSTT,
     VoiceSessionState,
     apply_tts_options,
-    build_minimax_tts,
+    build_caseflow_voice,
+    caseflow_stt_model,
+    deepgram_configured,
     log_tts_request,
     normalize_lang,
     resolve_caller_language,
     select_emotion,
     sync_caller_language,
+    voice_stt_payload,
+    voice_tts_payload,
 )
-from llm_client import build_dialogue_llm
+from llm_client import build_dialogue_llm, openai_direct_configured
 from openai_llm import openai_configured
 from orchestrator import run_parallel_retrieval, synthesize_and_emit
 from orchestrator import summarize as orchestrator_summarize
@@ -85,7 +89,12 @@ logger = logging.getLogger("agent")
 
 load_dotenv(".env.local")
 
-if openai_configured():
+if openai_direct_configured():
+    logger.info(
+        "OpenAI direct configured — dialogue primary is api.openai.com (%s)",
+        os.getenv("OPENAI_DIRECT_MODEL", "gpt-4.1-mini"),
+    )
+elif openai_configured():
     logger.info("OpenAI configured — gateway-routed LLM calls use OpenAI (gpt-4.1-mini)")
 elif gateway_configured():
     logger.info(
@@ -269,7 +278,6 @@ class Assistant(Agent):
         }
         if self._caller_location:
             self._case_data["location"] = self._caller_location
-            self._case_data["state"] = "CA"
             self._case_data["caller_location"] = self._caller_location
         self._moss = MossClient(
             os.getenv("MOSS_PROJECT_ID"), os.getenv("MOSS_PROJECT_KEY")
@@ -301,6 +309,7 @@ class Assistant(Agent):
         self._generated_doc_types: set[str] = set()
         self._completeness_doc_fired = False
         self._match_docs_fired = False
+        self._moss_after_first_turn = False
         self._persistence = CasePersistence(
             self._case_id,
             self._user_id,
@@ -469,6 +478,19 @@ class Assistant(Agent):
         turn: int,
         source: str,
     ) -> dict:
+        await self._update_case(
+            "document_parsing",
+            {
+                "document_parsing": {
+                    "doc_type": doc_type,
+                    "status": "parsing",
+                    "provider": "Unsiloed",
+                    "turn": turn,
+                    "timestamp": time.time(),
+                }
+            },
+        )
+        await self._publish_document_event(doc_type, {}, status="parsing")
         if s3_configured():
             await save_document_frame(
                 self._case_id, turn=turn, doc_type=doc_type, image_base64=image_base64
@@ -478,16 +500,44 @@ class Assistant(Agent):
         if not isinstance(docs, dict):
             docs = {}
         docs[doc_type] = {**parsed, "capture_source": source, "turn": turn}
-        await self._update_case("document_parsed", {"documents": docs})
+        await self._update_case(
+            "document_parsed",
+            {
+                "documents": docs,
+                "document_parsing": {
+                    "doc_type": doc_type,
+                    "status": "parsed",
+                    "provider": "Unsiloed",
+                    "field_count": len(parsed),
+                    "turn": turn,
+                    "timestamp": time.time(),
+                },
+                "s3_artifacts": self._s3_artifact_paths(doc_type),
+            },
+        )
+        await self._publish_document_event(doc_type, parsed, status="parsed")
         await self._persistence.on_document_parsed(doc_type, parsed)
         register_pronunciation_terms(
             self._voice_state,
             terms_from_parsed(doc_type, parsed),
             tts=self._minimax_tts,
         )
-        if doc_type == "police_report":
+        if doc_type in {"police_report", "er_discharge"}:
             self._spawn(self._run_retrieval_fanout())
         return parsed
+
+    def _s3_artifact_paths(self, doc_type: str | None = None) -> list[str]:
+        bucket = os.getenv("AWS_S3_BUCKET", "caseflow-cases-dev")
+        base = f"s3://{bucket}/{self._case_id}/"
+        paths = [
+            "transcript.jsonl",
+            "case/snapshot.json",
+            "audit/consistency.json",
+            "match/result.json",
+        ]
+        if doc_type:
+            paths.append(f"parsed/{doc_type}.json")
+        return [f"{base}{p}" for p in paths]
 
     async def _on_document_frame(self, data: dict) -> None:
         doc_type = str(data.get("doc_type") or "").strip()
@@ -572,6 +622,78 @@ class Assistant(Agent):
             {"moss_retrieval": event, "moss_retrievals": retrievals},
         )
         await self._publish_moss_context_event(event)
+
+    async def _broadcast_voice_bridge(self, *, language: str, language_changed: bool) -> None:
+        """Surface Deepgram STT → MiniMax TTS routing on the firm dashboard."""
+        if self._voice_state is None:
+            return
+        payload = {
+            "stt_provider": "Deepgram",
+            "stt_model": os.getenv("DEEPGRAM_MODEL", "nova-3"),
+            "detected_language": language,
+            "language_switched": language_changed,
+            "tts_provider": "MiniMax",
+            "tts_model": os.getenv("MINIMAX_TTS_MODEL", "speech-2.8-hd"),
+            "tts_voice": self._voice_state.voice_id_for(),
+            "tts_emotion": select_emotion(self._voice_state.message_type),
+            "pronunciation_terms": len(self._voice_state.extra_pronunciations),
+            "timestamp": time.time(),
+        }
+        await self._update_case("voice_bridge", {"voice_bridge": payload})
+
+    async def _broadcast_voice_event(self, event: str, payload: dict) -> None:
+        """Emit structured voice pipeline events to the firm dashboard SSE path."""
+        await self._update_case(
+            event,
+            {
+                "voice_pipeline": {
+                    **payload,
+                    "event": event,
+                    "timestamp": time.time(),
+                }
+            },
+        )
+
+    async def _publish_document_event(self, doc_type: str, parsed: dict, *, status: str) -> None:
+        """Push Unsiloed parse status to intake UI via LiveKit data channel."""
+        if self._room is None:
+            return
+        try:
+            payload = {
+                "type": "document_parse",
+                "data": {
+                    "doc_type": doc_type,
+                    "status": status,
+                    "fields": parsed if status == "parsed" else {},
+                    "timestamp": time.time(),
+                },
+            }
+            await self._room.local_participant.publish_data(
+                payload=json.dumps(payload, default=str).encode("utf-8"),
+                reliable=True,
+            )
+        except Exception:
+            logger.exception("Failed to publish document_parse")
+
+    async def _audit_dialogue_turn(self, text: str) -> None:
+        """Log dialogue LLM turns to TrueFoundry audit trail (firm metrics panel)."""
+        await _record_audit(
+            {
+                "audit_id": str(uuid.uuid4()),
+                "event_type": "gateway_call",
+                "model_id": os.getenv("GATEWAY_MODEL", "qwen-max"),
+                "resolved_model": getattr(self._redacting_llm, "model", "qwen-max"),
+                "provider": getattr(self._redacting_llm, "provider", "truefoundry"),
+                "case_id": self._case_id,
+                "turn": self._turn,
+                "caller_id": self._user_id,
+                "input_chars": len(self._last_user_utterance),
+                "output_chars": len(text),
+                "latency_ms": 0,
+                "failover": False,
+                "timestamp": time.time(),
+            }
+        )
 
     async def _publish_moss_context_event(self, event: dict) -> None:
         if self._room is None:
@@ -1075,7 +1197,7 @@ async def my_agent(ctx: JobContext):
             logger.warning("Invalid job metadata; using default user_id")
 
     voice_state = VoiceSessionState(metrics=MetricsTracker())
-    minimax_tts = build_minimax_tts(state=voice_state)
+    minimax_tts, _minimax_inner = build_caseflow_voice(state=voice_state)
 
     session = AgentSession(
         stt=LoggingSTT(state=voice_state, tts=minimax_tts),
@@ -1121,10 +1243,16 @@ async def my_agent(ctx: JobContext):
         assistant._last_user_utterance = ev.transcript
 
         async def _after_transcript() -> None:
+            await assistant._broadcast_voice_bridge(
+                language=lang, language_changed=language_changed
+            )
             await assistant._append_transcript(
                 "caller", ev.transcript, lang, assistant._turn
             )
             await assistant._auto_extract_and_save(ev.transcript, lang)
+            if assistant._turn == 1 and not assistant._moss_after_first_turn:
+                assistant._moss_after_first_turn = True
+                assistant._spawn(assistant._run_retrieval_fanout())
             await assistant._maybe_capture_document(ev.transcript)
             await maybe_validate_turn(
                 turn=assistant._turn,
@@ -1137,6 +1265,26 @@ async def my_agent(ctx: JobContext):
             )
 
         assistant._spawn(_after_transcript())
+        stt_engine = session.stt
+        assistant._spawn(
+            assistant._broadcast_voice_event(
+                "voice_stt",
+                voice_stt_payload(
+                    provider=stt_engine.provider
+                    if isinstance(stt_engine, LoggingSTT)
+                    else ("Deepgram" if deepgram_configured() else "LiveKit-Inference"),
+                    model=stt_engine.model
+                    if isinstance(stt_engine, LoggingSTT)
+                    else (
+                        os.getenv("DEEPGRAM_MODEL", "nova-3")
+                        if deepgram_configured()
+                        else caseflow_stt_model()
+                    ),
+                    language=lang,
+                    transcript=ev.transcript,
+                ),
+            )
+        )
 
     @session.on("conversation_item_added")
     def _on_conversation_item(ev) -> None:
@@ -1155,6 +1303,7 @@ async def my_agent(ctx: JobContext):
                 assistant._language,
                 assistant._turn,
             )
+            await assistant._audit_dialogue_turn(text)
 
         assistant._spawn(_persist_agent_line())
 
@@ -1166,17 +1315,53 @@ async def my_agent(ctx: JobContext):
     def _on_agent_state_changed(ev) -> None:
         if ev.new_state == "speaking":
             apply_tts_options(minimax_tts, voice_state)
+            tts_text = assistant._last_agent_utterance or ""
+            emotion = select_emotion(voice_state.message_type)
             log_tts_request(
+                provider=minimax_tts.provider,
+                model=minimax_tts.model,
                 voice_id=voice_state.voice_id_for(),
                 language=voice_state.caller_language,
-                emotion=select_emotion(voice_state.message_type),
-                text_len=0,
+                emotion=emotion,
+                text_len=len(tts_text),
+            )
+            assistant._spawn(
+                assistant._broadcast_voice_event(
+                    "voice_tts",
+                    voice_tts_payload(
+                        provider=minimax_tts.provider,
+                        model=minimax_tts.model,
+                        voice_id=voice_state.voice_id_for(),
+                        language=voice_state.caller_language,
+                        emotion=emotion,
+                        message_type=voice_state.message_type,
+                    ),
+                )
+            )
+            assistant._spawn(
+                gateway_tts(
+                    "minimax-speech-2.8-hd",
+                    tts_text,
+                    voice_state.voice_id_for(),
+                )
             )
         if ev.old_state == "speaking" and voice_state.message_type != "default":
             voice_state.message_type = "default"
             apply_tts_options(minimax_tts, voice_state)
         if ev.new_state == "listening" and voice_state.metrics:
+            turn = voice_state.metrics.current
             voice_state.metrics.end_turn()
+            if turn is not None:
+                assistant._spawn(
+                    assistant._broadcast_voice_event(
+                        "voice_turn_metrics",
+                        {
+                            k: v
+                            for k, v in turn.__dict__.items()
+                            if not k.startswith("_") and v is not None
+                        },
+                    )
+                )
 
     await session.start(
         agent=assistant,

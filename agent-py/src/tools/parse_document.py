@@ -12,9 +12,11 @@ import httpx
 
 UNSILOED_BASE = "https://prod.visionapi.unsiloed.ai"
 VALID_DOC_TYPES = {"police_report", "er_discharge", "insurance"}
+DOC_TYPE_ALIASES = {"insurance_letter": "insurance"}
 
 
 async def parse_document(image_base64: str, doc_type: str) -> dict[str, Any]:
+    doc_type = DOC_TYPE_ALIASES.get(doc_type, doc_type)
     if doc_type not in VALID_DOC_TYPES:
         raise ValueError(f"doc_type must be one of {sorted(VALID_DOC_TYPES)}")
 

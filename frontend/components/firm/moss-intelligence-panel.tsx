@@ -25,6 +25,7 @@ type MossRetrieval = {
   /** epoch seconds */
   timestamp?: number;
   seq?: number;
+  cached?: boolean;
   snippets?: Array<MossSnippet | string>;
 };
 
@@ -165,6 +166,11 @@ function StreamSection({
           {refined ? (
             <span className="caseflow-cite-pill rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-600">
               ↑ refined
+            </span>
+          ) : null}
+          {retrieval?.cached ? (
+            <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[10px] font-medium">
+              cached
             </span>
           ) : null}
         </div>

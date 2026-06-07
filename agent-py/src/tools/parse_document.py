@@ -246,18 +246,65 @@ def _segment_confidence(body: dict[str, Any]) -> float:
     return avg if avg <= 1 else avg / 100.0
 
 
+# Keyword signals to detect what the caller ACTUALLY held up, so a driver's
+# license isn't mislabeled as the police report the agent happened to ask for.
+_DOC_SIGNALS: dict[str, tuple[str, ...]] = {
+    "driver_license": (
+        "driver license", "driver's license", "drivers license", "driver licence",
+        "dmv", "department of motor vehicles", "class c", "class d", "donor",
+        "veteran", "dl no", "lic#", "endorsements", "restrictions", "hgt", "wgt",
+        "eyes", "hair", "date of birth", "issued", "expires",
+    ),
+    "police_report": (
+        "collision", "traffic collision", "police", "officer", "incident report",
+        "accident report", "case number", "report number", "party 1", "party 2",
+        "vehicle 1", "vehicle 2", "fault", "citation", "at fault", "right of way",
+    ),
+    "er_discharge": (
+        "discharge", "diagnosis", "patient", "hospital", "emergency department",
+        "discharge instructions", "mrn", "physician", "chief complaint", "triage",
+        "whiplash",
+    ),
+    "insurance": (
+        "policy number", "insurance", "claim number", "coverage", "declarations",
+        "premium", "insured", "adjuster", "policyholder",
+    ),
+}
+
+
+def _doc_scores(lowered: str) -> dict[str, int]:
+    return {t: sum(1 for s in sigs if s in lowered) for t, sigs in _DOC_SIGNALS.items()}
+
+
 def _extract_fields(
     body: dict[str, Any], doc_type: str
 ) -> tuple[dict[str, Any], dict[str, float]]:
     full_text = _chunk_text(body) or json.dumps(body)
     lowered = full_text.lower()
+
+    # Detect the document the caller actually showed. Only override the requested
+    # type when the detected type clearly dominates (>=2 hits and beats the
+    # requested type by 2+), so a genuine police report is never relabeled.
+    scores = _doc_scores(lowered)
+    detected = max(scores, key=lambda t: scores[t])
+    effective = doc_type
+    unexpected = False
+    if detected != doc_type and scores[detected] >= 2 and scores[detected] > scores.get(doc_type, 0) + 1:
+        effective = detected
+        unexpected = True
+
     fields: dict[str, Any] = {
-        "doc_type": doc_type,
+        "doc_type": effective,
         "markdown": full_text[:4000],
         "raw_excerpt": full_text[:1200],
     }
+    if unexpected:
+        fields["unexpected_document"] = True
+        fields["requested_doc_type"] = doc_type
 
-    if doc_type == "police_report":
+    if effective == "driver_license":
+        fields["parsed_summary"] = "Driver's license (identity document)"
+    elif effective == "police_report":
         if "undetermin" in lowered:
             fields["fault_determination"] = "undetermined"
         else:
@@ -275,7 +322,7 @@ def _extract_fields(
         claim = re.search(r"(right of way|ran the(?: red)? light|claimed[^\n]{0,40})", lowered)
         if claim:
             fields["other_driver_claim"] = claim.group(0).strip()[:80]
-    elif doc_type == "er_discharge":
+    elif effective == "er_discharge":
         if "whiplash" in lowered or "cervical" in lowered:
             fields["primary_diagnosis"] = "whiplash / cervical strain"
         else:
@@ -296,7 +343,6 @@ def _extract_fields(
         fields["parsed_summary"] = full_text[:300] or "Insurance document received."
 
     base = _segment_confidence(body)
-    confidence = {
-        k: base for k in fields if k not in ("doc_type", "raw_excerpt", "markdown")
-    }
+    _skip = ("doc_type", "raw_excerpt", "markdown", "unexpected_document", "requested_doc_type")
+    confidence = {k: base for k in fields if k not in _skip}
     return fields, confidence

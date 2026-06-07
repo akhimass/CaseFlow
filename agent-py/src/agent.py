@@ -226,6 +226,11 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
     - Then ask them to hold the document steady, close to the lens, and keep it in
       frame. It is parsed automatically — you do not read it aloud or name a tool.
     - Make it a single, calm request — don't stack it with another question.
+    - Only describe a document from its actual parsed fields once they arrive.
+      Never claim what a document says before it is parsed, and never infer fault
+      or liability that the parsed fields do not state. If the parsed document is
+      not the one you expected (e.g. a driver's license instead of a police
+      report), gently say so and ask for the correct document.
 
     # Retrieval tools
 
@@ -619,24 +624,31 @@ class Assistant(Agent):
             logger.warning("Unsiloed parse error for %s: %s", doc_type, meta.get("error"))
             return parsed
 
+        # Unsiloed detects what the caller ACTUALLY showed; trust that over the
+        # doc_type we asked for, so a driver's license isn't filed as a police
+        # report (and the agent never fabricates fault from the wrong document).
+        actual_type = str(parsed.get("doc_type") or doc_type)
+
         docs = self._case_data.get("documents") or {}
         if not isinstance(docs, dict):
             docs = {}
         entry = {**parsed, "capture_source": source, "turn": turn}
         if thumbnail:
             entry["thumbnail"] = thumbnail
-        docs[doc_type] = entry
+        docs[actual_type] = entry
 
         # Gap 3 + Enh C: map parsed fields into case_state BEFORE the fan-out so
         # comparables/state-law filter on the right jurisdiction + injuries.
-        derived = self._derive_case_fields(doc_type, parsed)
+        derived = self._derive_case_fields(actual_type, parsed)
         await self._update_case(
             "document_parsed",
             {
                 "documents": docs,
                 **derived,
                 "document_parsing": {
-                    "doc_type": doc_type,
+                    "doc_type": actual_type,
+                    "requested_doc_type": doc_type,
+                    "unexpected_document": bool(parsed.get("unexpected_document")),
                     "status": "parsed",
                     "provider": "Unsiloed",
                     "source": meta.get("source"),
@@ -646,21 +658,56 @@ class Assistant(Agent):
                     "turn": turn,
                     "timestamp": time.time(),
                 },
-                "s3_artifacts": self._s3_artifact_paths(doc_type),
+                "s3_artifacts": self._s3_artifact_paths(actual_type),
             },
         )
-        await self._publish_document_event(doc_type, parsed, status="parsed")
-        await self._persistence.on_document_parsed(doc_type, parsed)
+        await self._publish_document_event(actual_type, parsed, status="parsed")
+        await self._persistence.on_document_parsed(actual_type, parsed)
         register_pronunciation_terms(
             self._voice_state,
-            terms_from_parsed(doc_type, parsed),
+            terms_from_parsed(actual_type, parsed),
             tts=self._minimax_tts,
         )
-        if doc_type in {"police_report", "er_discharge"}:
+        # Ground the conversation LLM in the ACTUAL parsed fields so it never talks
+        # about a document it hasn't seen (it was hallucinating conclusions before).
+        await self._ground_parsed_document(parsed, requested=doc_type)
+        if actual_type in {"police_report", "er_discharge"}:
             self._spawn(self._run_retrieval_fanout())
         # Gap 5 + Enh D: proactively run consistency now that a doc is parsed.
-        self._spawn(self._post_parse_consistency(doc_type))
+        self._spawn(self._post_parse_consistency(actual_type))
         return parsed
+
+    async def _ground_parsed_document(self, parsed: dict, *, requested: str) -> None:
+        """Inject the real parsed fields into the agent's chat context.
+
+        Without this the dialogue LLM never sees what Unsiloed extracted and
+        invents document conclusions. We add a system note with only the actual
+        fields, and flag a type mismatch so the agent asks for the right document
+        instead of pretending a driver's license is a police report.
+        """
+        actual_type = str(parsed.get("doc_type") or requested)
+        skip = {"_meta", "markdown", "raw_excerpt", "thumbnail", "capture_source", "turn",
+                "doc_type", "unexpected_document", "requested_doc_type"}
+        field_view = {
+            k: v for k, v in parsed.items() if k not in skip and not str(k).startswith("_")
+        }
+        note = ""
+        if parsed.get("unexpected_document"):
+            note = (
+                f" The caller showed a {actual_type.replace('_', ' ')}, NOT the "
+                f"{requested.replace('_', ' ')} you asked for — gently tell them and ask "
+                "for the correct document."
+            )
+        content = (
+            f"[Document parsed via Unsiloed] type={actual_type}. "
+            f"Extracted fields: {json.dumps(field_view, ensure_ascii=False, default=str)[:600]}. "
+            "Reference ONLY what these fields actually say — never infer fault, liability, "
+            "or claims that are not present in them." + note
+        )
+        with contextlib.suppress(Exception):
+            ctx = self.chat_ctx.copy()
+            ctx.add_message(role="system", content=content)
+            await self.update_chat_ctx(ctx)
 
     def _derive_case_fields(self, doc_type: str, parsed: dict) -> dict:
         """Map parsed document fields into case_state (Gap 3 + Enh C)."""

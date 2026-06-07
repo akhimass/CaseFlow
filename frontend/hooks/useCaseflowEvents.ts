@@ -70,6 +70,15 @@ export function useCaseflowEvents() {
             if (payload?.case_completeness !== undefined) {
               merged.case_completeness = payload.case_completeness;
             }
+            if (payload?.voice_bridge) {
+              merged.voice_bridge = payload.voice_bridge;
+            }
+            if (payload?.document_parsing) {
+              merged.document_parsing = payload.document_parsing;
+            }
+            if (payload?.s3_artifacts) {
+              merged.s3_artifacts = payload.s3_artifacts;
+            }
             if (idx >= 0) next[idx] = merged;
             else next.unshift(merged);
             return next;

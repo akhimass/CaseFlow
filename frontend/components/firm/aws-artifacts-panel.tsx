@@ -23,6 +23,7 @@ const SENSITIVE_NOTE =
 export function AwsArtifactsPanel({ record }: { record: CaseRecord }) {
   const prefix = String(record.s3_prefix ?? '');
   const caseId = String(record.case_id ?? '');
+  const liveArtifacts = (record.s3_artifacts as string[] | undefined) ?? [];
 
   if (!prefix && !caseId) {
     return (
@@ -43,6 +44,18 @@ export function AwsArtifactsPanel({ record }: { record: CaseRecord }) {
         AWS S3 case file
       </h3>
       <p className="text-sm font-medium break-all">{base}</p>
+      {liveArtifacts.length > 0 && (
+        <div className="mt-3">
+          <p className="text-muted-foreground mb-1 text-xs font-medium">Recently written</p>
+          <ul className="space-y-1 font-mono text-xs text-emerald-700 dark:text-emerald-400">
+            {liveArtifacts.map((path) => (
+              <li key={path} className="break-all">
+                {path}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <ul className="text-muted-foreground mt-3 space-y-1 font-mono text-xs">
         {ARTIFACT_PATHS.map((path) => (
           <li key={path}>

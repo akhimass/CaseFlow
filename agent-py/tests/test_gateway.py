@@ -21,7 +21,23 @@ def test_metadata_header() -> None:
     assert "abc" in header
 
 
+def test_provider_chain_openai_direct_first(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_DIRECT_API_KEY", "sk-test-direct")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("TRUEFOUNDRY_GATEWAY_URL", "https://gateway.truefoundry.ai")
+    monkeypatch.setenv("TRUEFOUNDRY_API_KEY", "tfy-key")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIA")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    assert _provider_chain(allow_failover=True) == [
+        "openai-direct",
+        "truefoundry",
+        "bedrock",
+        "livekit-inference",
+    ]
+
+
 def test_provider_chain_openai_first(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_DIRECT_API_KEY", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("TRUEFOUNDRY_GATEWAY_URL", "https://gateway.truefoundry.ai")
     monkeypatch.setenv("TRUEFOUNDRY_API_KEY", "tfy-key")

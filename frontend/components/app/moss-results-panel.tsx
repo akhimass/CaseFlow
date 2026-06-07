@@ -19,9 +19,12 @@ export function MossResultsPanel({
 
   return (
     <div className={cn('space-y-3', className)} {...props}>
-      <h3 className="text-muted-foreground text-sm font-medium tracking-wide uppercase">
-        Legal Matches
-      </h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+          Moss Intelligence
+        </h3>
+        <span className="text-muted-foreground text-[10px]">real-time retrieval</span>
+      </div>
       <div className="space-y-2">
         {events.map(({ id, query, matches, timeTakenMs }) => (
           <details

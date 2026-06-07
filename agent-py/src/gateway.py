@@ -13,13 +13,20 @@ from typing import Any, Literal
 import httpx
 
 from bedrock_llm import bedrock_chat_openai_compat, bedrock_configured, bedrock_model_id
-from openai_llm import openai_chat, openai_configured, openai_model_id
+from openai_llm import (
+    openai_chat,
+    openai_configured,
+    openai_direct_configured,
+    openai_model_id,
+)
 from pii_redaction import RedactionSession, Redactor, redact_messages
 from privacy_context import get_redaction_session
 
 logger = logging.getLogger("gateway")
 
-ProviderName = Literal["openai", "truefoundry", "bedrock", "livekit-inference"]
+ProviderName = Literal[
+    "openai", "openai-direct", "truefoundry", "bedrock", "livekit-inference"
+]
 
 # Primary reasoning / document model — OpenAI gpt-4.1-mini (cost-efficient).
 GATEWAY_MODEL = os.getenv("GATEWAY_MODEL", "gpt-4.1-mini")
@@ -110,7 +117,9 @@ def _chat_paths(base: str) -> list[str]:
 
 def _provider_chain(*, allow_failover: bool) -> list[ProviderName]:
     chain: list[ProviderName] = []
-    if openai_configured():
+    if openai_direct_configured():
+        chain.append("openai-direct")
+    elif openai_configured():
         chain.append("openai")
     if gateway_configured():
         chain.append("truefoundry")
@@ -233,7 +242,7 @@ async def _invoke_provider(
     metadata: GatewayMetadata | None,
     timeout_s: float = CHAT_TIMEOUT_S,
 ) -> tuple[dict[str, Any], str]:
-    if provider == "openai":
+    if provider in {"openai", "openai-direct"}:
         data = await _openai_provider_chat(
             resolved_model=resolved_model,
             messages=messages,

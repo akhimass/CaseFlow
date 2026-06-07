@@ -236,6 +236,39 @@ class Retriever:
             elapsed_ms = (time.perf_counter() - start) * 1000.0
         return _docs(result), float(elapsed_ms)
 
+    def _cache_store(
+        self,
+        key: str,
+        *,
+        namespace: str,
+        query: str,
+        rows: list[Any],
+        cards: list[dict[str, Any]],
+    ) -> None:
+        self._cache[key] = {
+            "namespace": namespace,
+            "query": query,
+            "rows": rows,
+            "cards": cards,
+        }
+
+    async def _emit_cached(self, key: str) -> list[Any] | None:
+        """Re-emit a cached Moss result so the dashboard still shows the card."""
+        hit = self._cache.get(key)
+        if hit is None:
+            return None
+        if isinstance(hit, dict) and "rows" in hit:
+            await self._emit(
+                hit["namespace"],
+                hit["query"],
+                hit["rows"],
+                0.0,
+                hit["cards"],
+                cached=True,
+            )
+            return hit["rows"]
+        return hit if isinstance(hit, list) else None
+
     async def _emit(
         self,
         namespace: str,
@@ -243,15 +276,18 @@ class Retriever:
         rows: list[Any],
         elapsed_ms: float,
         cards: list[dict[str, Any]],
+        *,
+        cached: bool = False,
     ) -> None:
         # Remember the latest rows for this stream (used by re-synthesis).
         self._latest[namespace] = rows
         top_preview = (cards[0].get("text", "") if cards else "")[:120]
         logger.info(
-            "moss.retrieve namespace=%s results=%d latency=%.1fms query=%r top=%r",
+            "moss.retrieve namespace=%s results=%d latency=%.1fms cached=%s query=%r top=%r",
             namespace,
             len(rows),
             elapsed_ms,
+            cached,
             query,
             top_preview,
         )
@@ -266,6 +302,7 @@ class Retriever:
             "timestamp": time.time(),
             "seq": self._seq,
             "snippets": cards,
+            "cached": cached,
         }
         try:
             await self._on_result(event)
@@ -304,9 +341,10 @@ class Retriever:
             topic_norm = "general"
 
         cache_key = f"state-law:{state_code}:{topic_norm}"
-        cached = self._cache_get(cache_key)
-        if cached is not None:
-            return cached
+        if self._cache_get(cache_key) is not None:
+            hit = await self._emit_cached(cache_key)
+            if hit is not None:
+                return hit
 
         query = f"{state_code} personal injury {topic_norm.replace('_', ' ')}"
         filt = {"$and": [_eq("state", state_code), _eq("topic", topic_norm)]}
@@ -339,7 +377,7 @@ class Retriever:
             for r in rows
         ]
         await self._emit("state-law", query, rows, elapsed, cards)
-        self._cache[cache_key] = rows
+        self._cache_store(cache_key, namespace="state-law", query=query, rows=rows, cards=cards)
         return rows
 
     # -- B) comparable settlements ----------------------------------------- #
@@ -352,9 +390,10 @@ class Retriever:
         flt = _norm(fault)
 
         cache_key = f"settlements:{atype}:{juris}:{sev}:{flt}"
-        cached = self._cache_get(cache_key)
-        if cached is not None:
-            return cached
+        if self._cache_get(cache_key) is not None:
+            hit = await self._emit_cached(cache_key)
+            if hit is not None:
+                return hit
 
         query = (
             f"{atype.replace('_', ' ')} {sev} severity {flt} fault {juris} settlement"
@@ -405,7 +444,9 @@ class Retriever:
             for r in rows
         ]
         await self._emit("settlements", query, rows, elapsed, cards)
-        self._cache[cache_key] = rows
+        self._cache_store(
+            cache_key, namespace="settlements", query=query, rows=rows, cards=cards
+        )
         return rows
 
     # -- C) matching firms ------------------------------------------------- #
@@ -423,9 +464,10 @@ class Retriever:
         location = caller_location.strip().lower()
 
         cache_key = f"firms:{state}:{lang_code}:{case_type}:{est_value}:{location}"
-        cached = self._cache_get(cache_key)
-        if cached is not None:
-            return cached
+        if self._cache_get(cache_key) is not None:
+            hit = await self._emit_cached(cache_key)
+            if hit is not None:
+                return hit
 
         query = (
             f"{case_type.replace('_', ' ')} personal injury firm {state} "
@@ -506,7 +548,7 @@ class Retriever:
             for r in rows
         ]
         await self._emit("firms", query, rows, elapsed, cards)
-        self._cache[cache_key] = rows
+        self._cache_store(cache_key, namespace="firms", query=query, rows=rows, cards=cards)
         return rows
 
     # -- D) procedural guidance -------------------------------------------- #
@@ -530,9 +572,10 @@ class Retriever:
             scen = "finding_doctor"
 
         cache_key = f"procedures:{scen}"
-        cached = self._cache_get(cache_key)
-        if cached is not None:
-            return cached
+        if self._cache_get(cache_key) is not None:
+            hit = await self._emit_cached(cache_key)
+            if hit is not None:
+                return hit
 
         query = scenario or scen.replace("_", " ")
         docs, elapsed = await self._query(
@@ -562,7 +605,9 @@ class Retriever:
             for r in rows
         ]
         await self._emit("procedures", query, rows, elapsed, cards)
-        self._cache[cache_key] = rows
+        self._cache_store(
+            cache_key, namespace="procedures", query=query, rows=rows, cards=cards
+        )
         return rows
 
 

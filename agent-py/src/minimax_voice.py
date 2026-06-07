@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Literal
 
-from livekit.agents import APIConnectOptions, inference, stt
+from livekit.agents import APIConnectOptions, inference, stt, tts
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN, NotGivenOr
 from livekit.plugins import minimax
 
@@ -40,10 +40,36 @@ def syllabify_phrase(phrase: str) -> str:
 PI_PRONUNCIATION: dict[str, list[str]] = {
     "latigazo cervical": ["latigazo/la-ti-ga-zo", "cervical/ser-vi-cal"],
     "resonancia magnética": ["resonancia/re-so-nan-cia", "magnética/mag-ne-ti-ca"],
+    "whiplash": ["whiplash/whip-lash"],
+    "semáforo": ["semáforo/se-má-fo-ro"],
+    "luz roja": ["luz/roja"],
+    "rear-ended": ["rear-ended/rear-end-ed"],
     "subrogation": ["subrogation/sub-ro-ga-tion"],
     "statute of limitations": ["statute/sta-tute", "limitations/li-mi-ta-tions"],
     "demand letter": ["demand/de-mand", "letter/let-ter"],
 }
+
+# Deepgram nova-3 keyterms tuned for the Maria Delgado PI demo.
+CASEFLOW_PI_KEYTERMS: tuple[str, ...] = (
+    "semáforo",
+    "luz roja",
+    "whiplash",
+    "latigazo cervical",
+    "rear-ended",
+    "rear ended",
+    "personal injury",
+    "Orange County",
+    "police report",
+    "MRI",
+    "resonancia magnética",
+    "statute of limitations",
+    "red light",
+    "intersection",
+    "Maria Delgado",
+    "abogado",
+    "seguro",
+    "fault undetermined",
+)
 
 
 def select_emotion(message_type: MessageType) -> str:
@@ -168,7 +194,9 @@ class VoiceSessionState:
         return os.getenv("MINIMAX_VOICE_ID_EN", "voice_agent_Female_Phone_4")
 
 
-def apply_tts_options(tts_engine: minimax.TTS, state: VoiceSessionState) -> None:
+def apply_tts_options(
+    tts_engine: minimax.TTS | "LoggingTTS", state: VoiceSessionState
+) -> None:
     tts_engine.update_options(
         voice=state.voice_id_for(),
         emotion=select_emotion(state.message_type),
@@ -179,6 +207,17 @@ def apply_tts_options(tts_engine: minimax.TTS, state: VoiceSessionState) -> None
         ),
         pronunciation_dict={"tone": pronunciation_tone_entries(state)},
     )
+
+
+def caseflow_stt_keyterms() -> list[str]:
+    """PI vocabulary for Deepgram nova-3; extend via CASEFLOW_STT_KEYTERMS env."""
+    extra = os.getenv("CASEFLOW_STT_KEYTERMS", "")
+    terms = list(CASEFLOW_PI_KEYTERMS)
+    for raw in extra.split(","):
+        term = raw.strip()
+        if term and term not in terms:
+            terms.append(term)
+    return terms
 
 
 def build_minimax_tts(*, state: VoiceSessionState) -> minimax.TTS:
@@ -233,6 +272,7 @@ def build_caseflow_stt() -> stt.STT:
             punctuate=True,
             smart_format=True,
             filler_words=True,
+            keyterms=caseflow_stt_keyterms(),
             api_key=api_key,
         )
     logger.warning(
@@ -320,7 +360,10 @@ class _LoggingRecognizeStream(stt.RecognizeStream):
                 if event.type == stt.SpeechEventType.START_OF_SPEECH:
                     self._speech_start = time.perf_counter()
                     if self._state.metrics:
-                        self._state.metrics.begin_turn().mark_user_speech_end()
+                        self._state.metrics.begin_turn()
+                if event.type == stt.SpeechEventType.END_OF_SPEECH:
+                    if self._state.metrics and self._state.metrics.current:
+                        self._state.metrics.current.mark_user_speech_end()
                 if (
                     event.type == stt.SpeechEventType.FINAL_TRANSCRIPT
                     and event.alternatives
@@ -341,6 +384,7 @@ class _LoggingRecognizeStream(stt.RecognizeStream):
                         "CASEFLOW_STT %s",
                         json.dumps(
                             {
+                                "provider": self._stt.provider,
                                 "model": self._stt.model,
                                 "language": lang,
                                 "latency_ms": round(latency_ms or 0, 1),
@@ -363,12 +407,130 @@ class _LoggingRecognizeStream(stt.RecognizeStream):
             await self._inner.aclose()
 
 
+class LoggingTTS(tts.TTS):
+    """MiniMax Speech 2.8 HD with per-turn latency logging and metrics."""
+
+    def __init__(self, *, inner: minimax.TTS, state: VoiceSessionState) -> None:
+        super().__init__(
+            capabilities=inner.capabilities,
+            sample_rate=inner.sample_rate,
+            num_channels=inner.num_channels,
+        )
+        self._inner = inner
+        self._state = state
+
+    @property
+    def model(self) -> str:
+        return self._inner.model
+
+    @property
+    def provider(self) -> str:
+        return "MiniMax"
+
+    def update_options(self, **kwargs) -> None:
+        self._inner.update_options(**kwargs)
+
+    def synthesize(
+        self, text: str, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS
+    ) -> tts.ChunkedStream:
+        return self._inner.synthesize(text, conn_options=conn_options)
+
+    def stream(
+        self, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS
+    ) -> tts.SynthesizeStream:
+        return _LoggingSynthesizeStream(
+            tts=self,
+            inner=self._inner.stream(conn_options=conn_options),
+            state=self._state,
+        )
+
+    def prewarm(self) -> None:
+        self._inner.prewarm()
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()
+
+
+def build_caseflow_voice(
+    *, state: VoiceSessionState
+) -> tuple[LoggingTTS, minimax.TTS]:
+    """MiniMax TTS with LoggingTTS observability wrapper."""
+    inner = build_minimax_tts(state=state)
+    return LoggingTTS(inner=inner, state=state), inner
+
+
+class _LoggingSynthesizeStream(tts.SynthesizeStream):
+    def __init__(
+        self,
+        *,
+        tts: LoggingTTS,
+        inner: tts.SynthesizeStream,
+        state: VoiceSessionState,
+    ) -> None:
+        super().__init__(tts=tts, conn_options=inner._conn_options)
+        self._inner = inner
+        self._state = state
+        self._stream_start = time.perf_counter()
+        self._emitter_ready = False
+
+    async def _run(self, output_emitter: tts.AudioEmitter) -> None:
+        async def pump_input() -> None:
+            async for item in self._input_ch:
+                if isinstance(item, self._FlushSentinel):
+                    self._inner.flush()
+                else:
+                    self._inner.push_text(item)
+            self._inner.end_input()
+
+        pump_task = asyncio.create_task(pump_input())
+        logged = False
+        try:
+            async for audio in self._inner:
+                if not self._emitter_ready:
+                    output_emitter.initialize(
+                        request_id=audio.request_id or "caseflow-tts",
+                        sample_rate=self._tts.sample_rate,
+                        num_channels=self._tts.num_channels,
+                        mime_type="audio/pcm",
+                        stream=True,
+                    )
+                    self._emitter_ready = True
+                if not logged:
+                    logged = True
+                    first_ms = (time.perf_counter() - self._stream_start) * 1000
+                    voice_id = self._state.voice_id_for()
+                    emotion = select_emotion(self._state.message_type)
+                    if self._state.metrics and self._state.metrics.current:
+                        self._state.metrics.current.mark_tts_first_audio(
+                            voice_id=voice_id, emotion=emotion
+                        )
+                    log_tts_request(
+                        provider=self._tts.provider,
+                        model=self._tts.model,
+                        voice_id=voice_id,
+                        language=self._state.caller_language,
+                        emotion=emotion,
+                        text_len=len(self._pushed_text or ""),
+                        first_audio_ms=first_ms,
+                    )
+                output_emitter.push(audio.frame.data.tobytes())
+                if audio.is_final:
+                    output_emitter.flush()
+        finally:
+            pump_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pump_task
+            await self._inner.aclose()
+
+
 def log_tts_request(
     *,
     voice_id: str,
     language: str,
     emotion: str,
     text_len: int,
+    provider: str = "MiniMax",
+    model: str | None = None,
     first_audio_ms: float | None = None,
     total_ms: float | None = None,
 ) -> None:
@@ -376,6 +538,8 @@ def log_tts_request(
         "CASEFLOW_TTS %s",
         json.dumps(
             {
+                "provider": provider,
+                "model": model,
                 "voice_id": voice_id,
                 "language": language,
                 "emotion": emotion,
@@ -388,3 +552,39 @@ def log_tts_request(
             ensure_ascii=False,
         ),
     )
+
+
+def voice_stt_payload(
+    *,
+    provider: str,
+    model: str,
+    language: str,
+    transcript: str,
+    latency_ms: float | None = None,
+) -> dict:
+    return {
+        "provider": provider,
+        "model": model,
+        "language": language,
+        "transcript": transcript,
+        "latency_ms": round(latency_ms or 0, 1) if latency_ms is not None else None,
+    }
+
+
+def voice_tts_payload(
+    *,
+    provider: str,
+    model: str,
+    voice_id: str,
+    language: str,
+    emotion: str,
+    message_type: MessageType,
+) -> dict:
+    return {
+        "provider": provider,
+        "model": model,
+        "voice_id": voice_id,
+        "language": language,
+        "emotion": emotion,
+        "message_type": message_type,
+    }

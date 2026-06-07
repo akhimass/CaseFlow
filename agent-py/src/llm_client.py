@@ -1,20 +1,172 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
-from collections.abc import AsyncIterable
+import time
+import uuid
 from typing import Any
 
 import httpx
 import openai
 from livekit.agents import inference, llm
-from livekit.agents.llm.fallback_adapter import FallbackAdapter
-from livekit.agents.types import APIConnectOptions, NOT_GIVEN, NotGivenOr
+from livekit.agents.llm.fallback_adapter import FallbackAdapter, FallbackLLMStream
+from livekit.agents.llm.llm import LLMStream
+from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN, APIConnectOptions, NotGivenOr
+
+from bedrock_llm import (
+    bedrock_chat_openai_compat,
+    bedrock_configured,
+    bedrock_model_id,
+)
 
 logger = logging.getLogger("agent.llm_client")
 
 DEFAULT_TIMEOUT_SECONDS = 8.0
+
+
+def openai_direct_configured() -> bool:
+    return os.getenv("OPENAI_DIRECT_API_KEY", "").strip().startswith("sk-")
+
+
+def livekit_inference_configured() -> bool:
+    key = _get_env("LIVEKIT_INFERENCE_API_KEY", "LIVEKIT_API_KEY")
+    secret = _get_env("LIVEKIT_INFERENCE_API_SECRET", "LIVEKIT_API_SECRET")
+    return bool(key and secret)
+
+
+def _livekit_inference_llm() -> llm.LLM | None:
+    if not livekit_inference_configured():
+        return None
+    return inference.LLM(
+        model=_get_env("LIVEKIT_INFERENCE_MODEL", default="openai/gpt-4.1-mini")
+    )
+
+
+async def _record_dialogue_provider(
+    active_llm: llm.LLM,
+    *,
+    case_id: str | None,
+    turn_index: int | None = None,
+) -> None:
+    provider = getattr(active_llm, "provider", "unknown")
+    model = getattr(active_llm, "model", "unknown")
+    record = {
+        "audit_id": str(uuid.uuid4()),
+        "event_type": "dialogue_llm_turn",
+        "provider": provider,
+        "model_id": model,
+        "resolved_model": model,
+        "case_id": case_id or "",
+        "turn": turn_index or 0,
+        "timestamp": time.time(),
+        "note": f"Active dialogue LLM: {provider} {model}",
+    }
+    logger.info(
+        "DIALOGUE_LLM provider=%s model=%s case_id=%s turn=%s",
+        provider,
+        model,
+        case_id,
+        turn_index,
+    )
+    base = os.getenv("CASEFLOW_API_URL", "http://localhost:3000").rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            await client.post(f"{base}/api/audit", json=record)
+    except Exception:
+        logger.debug("Dialogue provider audit POST skipped (API unavailable)")
+
+
+class _AuditedFallbackLLMStream(FallbackLLMStream):
+    def __init__(
+        self,
+        adapter: FallbackAdapter,
+        *,
+        case_id: str | None,
+        turn_index: int | None,
+        chat_ctx: llm.ChatContext,
+        tools: list[llm.Tool],
+        conn_options: APIConnectOptions,
+        parallel_tool_calls: NotGivenOr[bool] = NOT_GIVEN,
+        tool_choice: NotGivenOr[llm.ToolChoice] = NOT_GIVEN,
+        extra_kwargs: NotGivenOr[dict[str, Any]] = NOT_GIVEN,
+    ) -> None:
+        super().__init__(
+            adapter,
+            chat_ctx=chat_ctx,
+            tools=tools,
+            conn_options=conn_options,
+            parallel_tool_calls=parallel_tool_calls,
+            tool_choice=tool_choice,
+            extra_kwargs=extra_kwargs,
+        )
+        self._case_id = case_id
+        self._turn_index = turn_index
+        self._provider_logged = False
+
+    async def _try_generate(self, *, llm: llm.LLM, check_recovery: bool = False):
+        async for chunk in super()._try_generate(llm=llm, check_recovery=check_recovery):
+            if not check_recovery and not self._provider_logged:
+                self._provider_logged = True
+                asyncio.create_task(
+                    _record_dialogue_provider(
+                        llm,
+                        case_id=self._case_id,
+                        turn_index=self._turn_index,
+                    )
+                )
+            yield chunk
+
+
+class CaseflowFallbackAdapter(FallbackAdapter):
+    def __init__(
+        self,
+        llm_chain: list[llm.LLM],
+        *,
+        case_id: str | None = None,
+        attempt_timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        max_retry_per_llm: int = 0,
+        retry_interval: float = 0.2,
+        retry_on_chunk_sent: bool = True,
+    ) -> None:
+        super().__init__(
+            llm_chain,
+            attempt_timeout=attempt_timeout,
+            max_retry_per_llm=max_retry_per_llm,
+            retry_interval=retry_interval,
+            retry_on_chunk_sent=retry_on_chunk_sent,
+        )
+        self._case_id = case_id
+
+    def _turn_index(self, chat_ctx: llm.ChatContext) -> int | None:
+        user_messages = 0
+        for item in getattr(chat_ctx, "items", []) or []:
+            if getattr(item, "role", None) == "user":
+                user_messages += 1
+        return user_messages or None
+
+    def chat(
+        self,
+        *,
+        chat_ctx: llm.ChatContext,
+        tools: list[llm.Tool] | None = None,
+        conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
+        parallel_tool_calls: NotGivenOr[bool] = NOT_GIVEN,
+        tool_choice: NotGivenOr[llm.ToolChoice] = NOT_GIVEN,
+        extra_kwargs: NotGivenOr[dict[str, Any]] = NOT_GIVEN,
+    ) -> LLMStream:
+        return _AuditedFallbackLLMStream(
+            self,
+            case_id=self._case_id,
+            turn_index=self._turn_index(chat_ctx),
+            chat_ctx=chat_ctx,
+            tools=tools or [],
+            conn_options=conn_options,
+            parallel_tool_calls=parallel_tool_calls,
+            tool_choice=tool_choice,
+            extra_kwargs=extra_kwargs,
+        )
 
 
 def _get_env(*names: str, default: str = "") -> str:
@@ -138,6 +290,79 @@ class OpenAIChatLLM(llm.LLM):
             await self._client.close()
 
 
+class _BedrockLLMStream(LLMStream):
+    """One-shot Bedrock completion exposed as a LiveKit LLM stream.
+
+    A last-resort dialogue fallback for when the OpenAI org is rate-limited. It is
+    non-streaming and does not invoke tools — the goal is simply to keep Aria
+    talking; the OpenAI primaries handle tool-calling when they are available.
+    """
+
+    def __init__(
+        self,
+        llm_: llm.LLM,
+        *,
+        chat_ctx: llm.ChatContext,
+        tools: list[llm.Tool],
+        conn_options: APIConnectOptions,
+        temperature: float,
+        max_tokens: int,
+    ) -> None:
+        super().__init__(llm_, chat_ctx=chat_ctx, tools=tools, conn_options=conn_options)
+        self._cc = chat_ctx
+        self._temperature = temperature
+        self._max_tokens = max_tokens
+
+    async def _run(self) -> None:
+        messages, _ = self._cc.to_provider_format("openai")
+        data = await bedrock_chat_openai_compat(
+            messages, temperature=self._temperature, max_tokens=self._max_tokens
+        )
+        content = (data or {}).get("content", "") if isinstance(data, dict) else str(data)
+        self._event_ch.send_nowait(
+            llm.ChatChunk(
+                id="bedrock-fallback",
+                delta=llm.ChoiceDelta(role="assistant", content=content or ""),
+            )
+        )
+
+
+class BedrockLLM(llm.LLM):
+    """Minimal Bedrock-backed dialogue LLM (failover only)."""
+
+    def __init__(self, *, temperature: float = 0.4, max_tokens: int = 400) -> None:
+        super().__init__()
+        self._temperature = temperature
+        self._max_tokens = max_tokens
+
+    @property
+    def model(self) -> str:
+        return bedrock_model_id()
+
+    @property
+    def provider(self) -> str:
+        return "bedrock"
+
+    def chat(
+        self,
+        *,
+        chat_ctx: llm.ChatContext,
+        tools: list[llm.Tool] | None = None,
+        conn_options: APIConnectOptions | None = None,
+        parallel_tool_calls: NotGivenOr[bool] = NOT_GIVEN,
+        tool_choice: NotGivenOr[llm.ToolChoice] = NOT_GIVEN,
+        extra_kwargs: NotGivenOr[dict[str, Any]] = NOT_GIVEN,
+    ) -> LLMStream:
+        return _BedrockLLMStream(
+            self,
+            chat_ctx=chat_ctx,
+            tools=tools or [],
+            conn_options=conn_options or APIConnectOptions(),
+            temperature=self._temperature,
+            max_tokens=self._max_tokens,
+        )
+
+
 class TrueFoundryLLM(llm.LLM):
     def __init__(
         self,
@@ -187,8 +412,42 @@ class TrueFoundryLLM(llm.LLM):
 
         self._primary_llm = primary_llm
         self._fallback_llm = fallback_llm
-        self._router = FallbackAdapter(
-            [self._primary_llm, self._fallback_llm],
+
+        # Direct OpenAI (sk-...) at api.openai.com — primary when OPENAI_DIRECT_API_KEY
+        # is set. OPENAI_API_KEY in .env is typically a TrueFoundry JWT, not a real key.
+        direct_llm: llm.LLM | None = None
+        if openai_direct_configured():
+            direct_llm = OpenAIChatLLM(
+                api_key=os.getenv("OPENAI_DIRECT_API_KEY", ""),
+                model=os.getenv("OPENAI_DIRECT_MODEL", "gpt-4.1-mini"),
+                provider="openai-direct",
+                default_temperature=self._primary_temperature,
+                case_id=case_id,
+                max_tokens=self._max_tokens,
+                label="openai-direct",
+                base_url="https://api.openai.com/v1",
+            )
+
+        # Dialogue failover: OpenAI direct → TrueFoundry gateway → LiveKit Inference
+        # → Bedrock last resort. MiniMax stays on the voice layer only.
+        chain: list[llm.LLM] = []
+        if direct_llm is not None:
+            chain.append(direct_llm)
+        chain.append(self._primary_llm)
+        if self._fallback_llm is not self._primary_llm:
+            chain.append(self._fallback_llm)
+        livekit_llm = _livekit_inference_llm()
+        if livekit_llm is not None:
+            chain.append(livekit_llm)
+        if bedrock_configured():
+            chain.append(
+                BedrockLLM(
+                    temperature=self._primary_temperature, max_tokens=self._max_tokens
+                )
+            )
+        self._router = CaseflowFallbackAdapter(
+            chain,
+            case_id=case_id,
             attempt_timeout=DEFAULT_TIMEOUT_SECONDS,
             max_retry_per_llm=0,
             retry_interval=0.2,
@@ -292,14 +551,25 @@ class TrueFoundryLLM(llm.LLM):
         *,
         temperature: float,
     ) -> str:
-        primary_client = self._primary_llm._ensure_client()  # noqa: SLF001
-        fallback_client = self._fallback_llm._ensure_client()  # noqa: SLF001
-        primary_model = self._primary_llm.model
-        fallback_model = self._fallback_llm.model
-        for client, model, provider in (
-            (primary_client, primary_model, "truefoundry"),
-            (fallback_client, fallback_model, "openai"),
-        ):
+        attempts: list[tuple[openai.AsyncClient, str, str]] = []
+        if openai_direct_configured():
+            attempts.append(
+                (
+                    openai.AsyncClient(
+                        api_key=os.getenv("OPENAI_DIRECT_API_KEY", ""),
+                        base_url="https://api.openai.com/v1",
+                    ),
+                    os.getenv("OPENAI_DIRECT_MODEL", "gpt-4.1-mini"),
+                    "openai-direct",
+                )
+            )
+        attempts.extend(
+            [
+                (self._primary_llm._ensure_client(), self._primary_llm.model, "truefoundry"),
+                (self._fallback_llm._ensure_client(), self._fallback_llm.model, "openai"),
+            ]
+        )
+        for client, model, provider in attempts:
             try:
                 response = await client.chat.completions.create(  # type: ignore[union-attr]
                     messages=messages,
@@ -319,14 +589,16 @@ class TrueFoundryLLM(llm.LLM):
                     continue
                 raise
 
-        raise RuntimeError("Both TrueFoundry and OpenAI fallback completions failed")
+        raise RuntimeError("All dialogue LLM completions failed")
 
     async def aclose(self) -> None:
         await self._router.aclose()
 
 
 def dialogue_llm_configured() -> bool:
-    return bool(_get_env("TRUEFOUNDRY_API_KEY", "OPENAI_API_KEY"))
+    return openai_direct_configured() or bool(
+        _get_env("TRUEFOUNDRY_API_KEY", "OPENAI_API_KEY")
+    )
 
 
 def build_caseflow_llm(*, case_id: str | None = None) -> TrueFoundryLLM:
@@ -334,9 +606,12 @@ def build_caseflow_llm(*, case_id: str | None = None) -> TrueFoundryLLM:
 
 
 def build_dialogue_llm(*, case_id: str | None = None) -> llm.LLM:
-    """Primary intake dialogue LLM — TrueFoundry when configured, else LiveKit Inference."""
+    """Intake dialogue LLM — OpenAI direct → TrueFoundry → LiveKit Inference."""
     if dialogue_llm_configured():
         return build_caseflow_llm(case_id=case_id)
-    return inference.LLM(
-        model=_get_env("LIVEKIT_INFERENCE_MODEL", default="openai/gpt-5.2-chat-latest")
+    livekit_llm = _livekit_inference_llm()
+    if livekit_llm is not None:
+        return livekit_llm
+    raise RuntimeError(
+        "No dialogue LLM configured (set OPENAI_DIRECT_API_KEY, TrueFoundry, or LiveKit keys)"
     )

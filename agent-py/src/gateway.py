@@ -212,24 +212,48 @@ async def _post_chat(
         "temperature": temperature,
     }
     headers = _auth_headers(metadata, with_guardrails=True)
+    # Fail-open on guardrails: if the guardrail group isn't provisioned in the TF
+    # console yet, the gateway 404s the whole call. Retry once WITHOUT the
+    # guardrail header so TrueFoundry still serves traffic (the app-side
+    # RedactingLLM still redacts); guardrails enforce automatically once the group
+    # exists. Without this, the TF provider 404s on every call and is bypassed.
+    headers_no_guard = _auth_headers(metadata, with_guardrails=False)
     last_error: Exception | None = None
 
     async with httpx.AsyncClient(timeout=timeout_s) as client:
         for path in _chat_paths(base):
-            try:
-                response = await client.post(path, headers=headers, json=payload)
-                if response.status_code >= 500:
-                    raise RuntimeError(f"Gateway server error {response.status_code}")
-                if response.status_code >= 400:
-                    raise RuntimeError(
-                        f"Gateway error {response.status_code}: {response.text[:300]}"
+            for attempt_headers in (headers, headers_no_guard):
+                try:
+                    response = await client.post(
+                        path, headers=attempt_headers, json=payload
                     )
-                data = response.json()
-                data["_provider"] = "truefoundry"
-                return data
-            except Exception as exc:
-                last_error = exc
-                logger.warning("Gateway chat failed at %s: %s", path, exc)
+                    if response.status_code >= 500:
+                        raise RuntimeError(
+                            f"Gateway server error {response.status_code}"
+                        )
+                    if response.status_code >= 400:
+                        body = response.text[:300]
+                        # A missing/misconfigured guardrail group → drop guardrails
+                        # and retry this path once before giving up.
+                        if (
+                            attempt_headers is headers
+                            and "X-TFY-GUARDRAILS" in headers
+                            and "guardrail" in body.lower()
+                        ):
+                            logger.warning(
+                                "Gateway guardrail unavailable; retrying without "
+                                "guardrails: %s",
+                                body,
+                            )
+                            continue
+                        raise RuntimeError(f"Gateway error {response.status_code}: {body}")
+                    data = response.json()
+                    data["_provider"] = "truefoundry"
+                    return data
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning("Gateway chat failed at %s: %s", path, exc)
+                    break  # network/other error — move to the next path
 
     raise last_error or RuntimeError("Gateway chat failed")
 

@@ -197,8 +197,10 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
        do not push for name/vehicle/financial details yet. Only once they are
        settled and safe (e.g. calling from home, already treated) do you move into
        the full intake below. Read their state from how they speak.
-    3. Identify the caller. Once they are settled, ask their name warmly ("So I can
-       set this up properly, may I have your full name?") and save it.
+    3. Name is optional. If the caller offers their name, capture it (save
+       caller_name). You may ask once, gently, only if it feels natural — but
+       never insist, never re-ask, and never block intake on it. Plenty of callers
+       won't want to share a name yet, and that is completely fine.
     4. Collect the case facts as the caller leads — follow their story, don't
        march a checklist:
        - accident type, date, and where it happened (state/jurisdiction)

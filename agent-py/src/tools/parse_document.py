@@ -117,7 +117,10 @@ def _form_factor(doc_type: str) -> str:
 
 LOW_CONFIDENCE_THRESHOLD = 0.75
 POLL_INTERVAL_S = 1.5
-MAX_POLLS = 20
+# Real documents (a printed form photographed on camera) take longer to parse
+# than a sparse test image — give Unsiloed enough headroom that a legitimate
+# parse never hard-errors as "stuck". ~45s ceiling; most finish well under it.
+MAX_POLLS = int(os.getenv("UNSILOED_MAX_POLLS", "30"))
 # Unsiloed job states (GET /parse/{job_id} -> status). Real values are
 # "Starting" / "Succeeded" / "Failed"; we accept synonyms defensively.
 _SUCCESS_STATES = {"succeeded", "completed", "complete", "success", "done"}

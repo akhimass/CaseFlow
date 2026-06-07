@@ -22,7 +22,9 @@ export function DocumentParsingPanel({ events }: { events: DocumentParseEvent[] 
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm font-semibold">{formatDocType(event.docType)}</span>
             {event.status === 'parsing' ? (
-              <span className="animate-pulse text-xs font-medium text-amber-600">Parsing…</span>
+              <span className="animate-pulse text-xs font-medium text-amber-600">
+                Reading your document…
+              </span>
             ) : (
               <span className="text-xs font-medium text-emerald-600">
                 {Object.keys(event.fields).length} fields

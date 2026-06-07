@@ -185,7 +185,7 @@ export function UnsiloedParsedPanel({ record }: { record: CaseRecord }) {
           ) : null}
           {parsing?.status === 'parsing' && (
             <span className="animate-pulse rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
-              Parsing {formatDocType(String(parsing.doc_type ?? 'document'))}…
+              Reading {formatDocType(String(parsing.doc_type ?? 'document'))}…
             </span>
           )}
           {parsing?.status === 'parsed' && (

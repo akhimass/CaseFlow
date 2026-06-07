@@ -51,6 +51,11 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   accentDark: '#0a0a0a',
   startButtonText: START_CASE_CTA,
 
+  audioVisualizerType: 'aura',
+  audioVisualizerColor: '#2563EB',
+  audioVisualizerColorDark: '#38BDF8',
+  audioVisualizerColorShift: 0.25,
+
   agentName: process.env.AGENT_NAME ?? 'caseflow-agent',
   sandboxId: undefined,
 };

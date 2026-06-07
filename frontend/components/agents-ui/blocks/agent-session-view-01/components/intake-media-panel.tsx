@@ -110,7 +110,35 @@ export function IntakeMediaPanel({
               />
             </div>
           ) : (
-            <div className="relative flex h-[120px] w-full max-w-[280px] items-center justify-center">
+            <div className="relative flex h-[220px] w-full items-center justify-center">
+              {/* Outermost ambient ring — always visible */}
+              <div
+                className="absolute size-[210px] rounded-full"
+                style={{
+                  background: `radial-gradient(circle, ${audioVisualizerColor ?? '#2563EB'}18 0%, transparent 70%)`,
+                }}
+              />
+              {/* Pulse ring — faster when speaking */}
+              <div
+                className={cn(
+                  'absolute rounded-full border transition-all duration-700',
+                  agentState === 'speaking'
+                    ? 'size-[200px] opacity-60 animate-ping'
+                    : agentState === 'thinking'
+                      ? 'size-[188px] opacity-40 animate-pulse'
+                      : 'size-[180px] opacity-20'
+                )}
+                style={{ borderColor: `${audioVisualizerColor ?? '#2563EB'}60` }}
+              />
+              {/* Inner glow ring */}
+              <div
+                className={cn(
+                  'absolute rounded-full border-2 transition-all duration-500',
+                  agentState === 'speaking' ? 'size-[162px] opacity-70' : 'size-[154px] opacity-30'
+                )}
+                style={{ borderColor: `${audioVisualizerColor ?? '#2563EB'}90` }}
+              />
+              {/* Aura canvas */}
               <AudioVisualizer
                 isChatOpen={false}
                 audioVisualizerType={audioVisualizerType}
@@ -122,10 +150,7 @@ export function IntakeMediaPanel({
                 audioVisualizerGridRowCount={audioVisualizerGridRowCount}
                 audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
                 audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
-                className={cn(
-                  'bg-background rounded-[50px] border border-transparent',
-                  'absolute top-1/2 left-1/2 size-[120px] -translate-x-1/2 -translate-y-1/2'
-                )}
+                className="size-[148px] rounded-full"
                 style={{ color: audioVisualizerColor }}
               />
             </div>

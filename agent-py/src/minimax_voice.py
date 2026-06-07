@@ -14,7 +14,7 @@ from typing import Literal
 
 from livekit.agents import APIConnectOptions, inference, stt, tts
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN, NotGivenOr
-from livekit.plugins import minimax
+from livekit.plugins import deepgram, minimax
 
 from metrics import MetricsTracker
 
@@ -253,8 +253,6 @@ def build_caseflow_stt() -> stt.STT:
     """
     api_key = os.getenv("DEEPGRAM_API_KEY", "").strip()
     if api_key:
-        from livekit.plugins import deepgram
-
         model = os.getenv("DEEPGRAM_MODEL", "nova-3")
         language = os.getenv("DEEPGRAM_LANGUAGE", "multi")
         # Streaming STT cannot use Deepgram auto-detect; we resolve language from
@@ -496,14 +494,12 @@ class _LoggingSynthesizeStream(tts.SynthesizeStream):
                         stream=True,
                     )
                     self._emitter_ready = True
-
                 seg_id = audio.segment_id or audio.request_id or "caseflow-tts"
                 if current_segment_id != seg_id:
                     if current_segment_id is not None:
                         output_emitter.end_segment()
                     output_emitter.start_segment(segment_id=seg_id)
                     current_segment_id = seg_id
-
                 if not logged:
                     logged = True
                     first_ms = (time.perf_counter() - self._stream_start) * 1000

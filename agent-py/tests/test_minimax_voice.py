@@ -1,3 +1,5 @@
+import threading
+
 from minimax_voice import (
     CASEFLOW_PI_KEYTERMS,
     VoiceSessionState,
@@ -88,6 +90,27 @@ def test_build_caseflow_stt_disables_detect_language_by_default(monkeypatch) -> 
     monkeypatch.delenv("DEEPGRAM_DETECT_LANGUAGE", raising=False)
     stt_instance = build_caseflow_stt()
     assert stt_instance._opts.detect_language is False
+
+
+def test_build_caseflow_stt_is_safe_in_worker_thread(monkeypatch) -> None:
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "test-key")
+
+    result: list[object] = []
+    error: list[BaseException] = []
+
+    def _build() -> None:
+        try:
+            result.append(build_caseflow_stt())
+        except BaseException as exc:  # pragma: no cover - surfaced via assertion below
+            error.append(exc)
+
+    thread = threading.Thread(target=_build)
+    thread.start()
+    thread.join(timeout=10)
+
+    assert not error
+    assert result
+    assert result[0].__class__.__module__.startswith("livekit.plugins.deepgram")
 
 
 def test_caseflow_stt_model_defaults_to_deepgram_nova3(monkeypatch) -> None:

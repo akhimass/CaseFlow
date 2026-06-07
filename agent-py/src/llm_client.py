@@ -3,14 +3,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import AsyncIterable
 from typing import Any
 
 import httpx
 import openai
 from livekit.agents import inference, llm
-from livekit.agents.llm.fallback_adapter import FallbackAdapter
-from livekit.agents.types import APIConnectOptions, NOT_GIVEN, NotGivenOr
+from livekit.agents.types import NOT_GIVEN, APIConnectOptions, NotGivenOr
 
 logger = logging.getLogger("agent.llm_client")
 
@@ -75,7 +73,13 @@ class OpenAIChatLLM(llm.LLM):
 
     def _ensure_client(self) -> openai.AsyncClient:
         if self._client is None:
-            client_kwargs: dict[str, Any] = {"api_key": self._api_key or "placeholder"}
+            client_kwargs: dict[str, Any] = {
+                "api_key": self._api_key or "placeholder",
+                "default_headers": {
+                    "X-TFY-METADATA": "{}",
+                    "X-TFY-LOGGING-CONFIG": '{"enabled": true}',
+                },
+            }
             if self._base_url:
                 client_kwargs["base_url"] = self._base_url
             self._client = openai.AsyncClient(**client_kwargs)
@@ -156,44 +160,21 @@ class TrueFoundryLLM(llm.LLM):
         if primary_llm is None:
             primary_llm = OpenAIChatLLM(
                 api_key=_get_env("OPENAI_API_KEY", "TRUEFOUNDRY_API_KEY"),
-                model=_get_env("OPENAI_MODEL", "TRUEFOUNDRY_MODEL", default="openai/gpt-4o-mini"),
+                model=_get_env("OPENAI_MODEL", "TRUEFOUNDRY_MODEL", default="virtual-models/prod-model"),
                 provider="truefoundry",
                 default_temperature=self._primary_temperature,
                 case_id=case_id,
                 max_tokens=self._max_tokens,
-                label="truefoundry-primary",
+                label="truefoundry-virtual",
                 base_url=_get_env(
                     "OPENAI_BASE_URL",
                     "TRUEFOUNDRY_GATEWAY_URL",
-                    default="https://casefloww.truefoundry.cloud/api/llm/openai",
-                ),
-            )
-
-        if fallback_llm is None:
-            fallback_llm = OpenAIChatLLM(
-                api_key=_get_env("OPENAI_API_KEY", "TRUEFOUNDRY_API_KEY"),
-                model=_get_env("TRUEFOUNDRY_FALLBACK_MODEL", default="aws-bedrock/deepseek.v3-v1-0"),
-                provider="truefoundry",
-                default_temperature=self._primary_temperature,
-                case_id=case_id,
-                max_tokens=self._max_tokens,
-                label="truefoundry-bedrock-fallback",
-                base_url=_get_env(
-                    "OPENAI_BASE_URL",
-                    "TRUEFOUNDRY_GATEWAY_URL",
-                    default="https://casefloww.truefoundry.cloud/api/llm/openai",
+                    default="https://gateway.truefoundry.ai",
                 ),
             )
 
         self._primary_llm = primary_llm
-        self._fallback_llm = fallback_llm
-        self._router = FallbackAdapter(
-            [self._primary_llm, self._fallback_llm],
-            attempt_timeout=DEFAULT_TIMEOUT_SECONDS,
-            max_retry_per_llm=0,
-            retry_interval=0.2,
-            retry_on_chunk_sent=True,
-        )
+        self._fallback_llm = primary_llm  # virtual model owns routing; alias for _complete_text compat
 
     @property
     def model(self) -> str:
@@ -231,7 +212,7 @@ class TrueFoundryLLM(llm.LLM):
         if tool_choice is not None:
             merged_extra["tool_choice"] = tool_choice
 
-        return self._router.chat(
+        return self._primary_llm.chat(
             chat_ctx=chat_ctx,
             tools=tools or [],
             conn_options=conn_options or APIConnectOptions(timeout=DEFAULT_TIMEOUT_SECONDS, max_retry=0),
@@ -292,8 +273,8 @@ class TrueFoundryLLM(llm.LLM):
         *,
         temperature: float,
     ) -> str:
-        primary_client = self._primary_llm._ensure_client()  # noqa: SLF001
-        fallback_client = self._fallback_llm._ensure_client()  # noqa: SLF001
+        primary_client = self._primary_llm._ensure_client()
+        fallback_client = self._fallback_llm._ensure_client()
         primary_model = self._primary_llm.model
         fallback_model = self._fallback_llm.model
         for client, model, provider in (
@@ -322,7 +303,7 @@ class TrueFoundryLLM(llm.LLM):
         raise RuntimeError("Both TrueFoundry and OpenAI fallback completions failed")
 
     async def aclose(self) -> None:
-        await self._router.aclose()
+        await self._primary_llm.aclose()
 
 
 def dialogue_llm_configured() -> bool:

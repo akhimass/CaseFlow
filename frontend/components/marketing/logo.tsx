@@ -49,14 +49,14 @@ export function CaseflowIcon({ className }: IconProps) {
 
 /** Icon only — header sidebar, previews. */
 export function LogoMark({ className }: IconProps) {
-  return <CaseflowIcon className={cn('size-8 sm:size-9', className)} />;
+  return <CaseflowIcon className={cn('size-9 sm:size-10', className)} />;
 }
 
 /** Icon + caseflow wordmark for nav and footer. */
 export function Wordmark({ className }: { className?: string }) {
   return (
     <span className={cn('inline-flex items-center gap-2.5', className)} aria-label="Caseflowy">
-      <CaseflowIcon className="size-9 sm:size-10" />
+      <CaseflowIcon className="size-11 sm:size-12" />
       <span className="text-[1.25rem] leading-none font-semibold tracking-tight lowercase sm:text-[1.4rem]">
         caseflowy
       </span>

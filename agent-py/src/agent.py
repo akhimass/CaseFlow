@@ -590,6 +590,7 @@ class Assistant(Agent):
         self._generated_doc_types: set[str] = set()
         self._completeness_doc_fired = False
         self._match_docs_fired = False
+        self._match_auto_fired = False
         self._moss_after_first_turn = False
         # Real LLM time-to-first-token for the last turn, fed from LiveKit metrics
         # so the TrueFoundry audit trail logs actual latency (not a 0 stub).
@@ -1488,6 +1489,11 @@ class Assistant(Agent):
     async def _maybe_generate_documents(self, event: str) -> None:
         if event == "document_generated":
             return
+        # Auto-match a firm as soon as there's enough context — independent of the
+        # model calling the match tool (its tool-calling is unreliable). This
+        # guarantees real firm cards + a real recommended firm name in context, so
+        # the agent never hallucinates a firm or claims cards that aren't there.
+        self._spawn(self._ensure_firm_match())
         try:
             if (
                 not self._completeness_doc_fired
@@ -1743,6 +1749,77 @@ class Assistant(Agent):
             logger.info(orchestrator_summarize(result))
         except Exception:
             logger.exception("Parallel retrieval fan-out failed")
+
+    async def _ensure_firm_match(self) -> None:
+        """Match a firm + publish cards + inject the real firm name into context,
+        without relying on the model's tool calls. Fires once, when there's enough
+        context (case type + a location/state)."""
+        if self._match_auto_fired:
+            return
+        cd = self._case_data
+        location = str(cd.get("caller_location") or cd.get("location") or "")
+        if not (cd.get("accident_type") and (cd.get("state") or location)):
+            return
+        self._match_auto_fired = True
+        try:
+            leads = await self._retriever.firm_leads(cd, location)
+        except Exception:
+            logger.exception("auto firm match failed")
+            self._match_auto_fired = False
+            return
+        if leads:
+            lead_dicts = rows_to_dicts(leads)
+            top = leads[0]
+            matches = [
+                {
+                    "firm_id": ld.firm_id,
+                    "name": ld.name,
+                    "phone": ld.phone,
+                    "score": ld.score,
+                    "reasoning": "; ".join(ld.match_reasons) or "Moss lead-gen match",
+                }
+                for ld in leads
+            ]
+            await self._update_case(
+                "firms_matched",
+                {
+                    "moss_firm_leads": lead_dicts,
+                    "matches": matches,
+                    "matched_firm_id": top.firm_id,
+                    "recommended_firm": top.name,
+                },
+            )
+            await self._publish_firm_recommendations(lead_dicts)
+            await self._inject_firm_recommendation(top.name, top.phone)
+            return
+        # Fallback: local roster.
+        result = match_firm(cd, location)
+        matches = result.get("matches") or []
+        if not matches:
+            self._match_auto_fired = False
+            return
+        top_m = matches[0]
+        await self._update_case("firms_matched", result)
+        await self._publish_firm_recommendations(matches)
+        await self._inject_firm_recommendation(
+            str(top_m.get("name", "")), str(top_m.get("phone", ""))
+        )
+
+    async def _inject_firm_recommendation(self, name: str, phone: str) -> None:
+        """Inject the matched firm into the agent's context so it recommends the
+        REAL firm by name (and never invents one)."""
+        if not name or self.session is None:
+            return
+        suffix = f" ({phone})" if phone else ""
+        content = (
+            f"[Firm matched] This case is matched to {name}{suffix}, shown on the "
+            f"caller's screen. When you recommend a firm, recommend ONLY {name} by "
+            f"name. Never invent, guess, or mention any other firm name."
+        )
+        with contextlib.suppress(Exception):
+            ctx = self.chat_ctx.copy()
+            ctx.add_message(role="system", content=content)
+            await self.update_chat_ctx(ctx)
 
     async def _on_decision(self, payload: dict) -> None:
         """Broadcast a Caseflow Decision update (synthesizing / ready / error)."""

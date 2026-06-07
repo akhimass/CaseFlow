@@ -41,6 +41,18 @@ _NARRATE_RE = re.compile(
 )
 _BACKTICKS_RE = re.compile(r"`+")
 
+# Known tool names — if any appears (even in a truncated/incomplete call like
+# "functions.call_firm_with_brief({...") strip from there to the end, since a
+# partial tool call is always at the tail of the leaked text.
+_KNOWN_TOOLS = (
+    "save_case_field|call_firm_with_brief|match_firm|retrieve_matching_firms|"
+    "retrieve_state_law|retrieve_comparables|retrieve_procedural_guidance|"
+    "audit_claim|compute_case_strength|check_consistency|send_sms_confirmation"
+)
+_TRUNCATED_TOOL_RE = re.compile(
+    rf"(?:functions\.)?(?:{_KNOWN_TOOLS})\s*\([\s\S]*$", re.I
+)
+
 
 def sanitize_agent_text(text: str) -> str:
     """Strip leaked tool-call syntax, code fences, and 'let me save…' narration
@@ -49,6 +61,7 @@ def sanitize_agent_text(text: str) -> str:
         return text
     text = _CODE_FENCE_RE.sub("", text)
     text = _TOOL_CALL_RE.sub("", text)
+    text = _TRUNCATED_TOOL_RE.sub("", text)  # incomplete tool call at the tail
     text = _LANG_TAG_RE.sub("", text)
     text = _NARRATE_RE.sub("", text)
     text = _BACKTICKS_RE.sub("", text)

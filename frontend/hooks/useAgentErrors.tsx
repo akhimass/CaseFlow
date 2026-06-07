@@ -33,7 +33,7 @@ export function useAgentErrors() {
       const reasons = agent.failureReasons;
 
       toastAlert({
-        title: 'Session ended',
+        title: 'Aria could not join the call',
         description: (
           <>
             {reasons.length > 1 && (
@@ -45,15 +45,10 @@ export function useAgentErrors() {
             )}
             {reasons.length === 1 && <p className="w-full">{reasons[0]}</p>}
             <p className="w-full">
-              <a
-                target="_blank"
-                rel="noopener noreferrer"
-                href="https://docs.livekit.io/agents/start/voice-ai/"
-                className="whitespace-nowrap underline"
-              >
-                See quickstart guide
-              </a>
-              .
+              Start the Python agent in a separate terminal:{' '}
+              <code className="text-xs">pnpm dev:agent-py</code> (or{' '}
+              <code className="text-xs">pnpm dev</code> for frontend + agent). It must register
+              as <code className="text-xs">caseflow-agent</code> on your LiveKit project.
             </p>
           </>
         ),

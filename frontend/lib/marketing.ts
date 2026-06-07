@@ -68,26 +68,6 @@ export const PREVIEW_FIRM = {
   city: 'San Francisco, CA',
 } as const;
 
-/** Lead cards for the firm dashboard landing preview. */
-export const PREVIEW_LEADS = [
-  {
-    caller: 'Maria Delgado',
-    type: 'Auto · ES',
-    score: 78,
-    value: '$45–72K',
-    qualified: true,
-    summary: 'Rear-end in Orange County; whiplash, police report parsed.',
-  },
-  {
-    caller: 'James Okafor',
-    type: 'Slip & fall',
-    score: 91,
-    value: '$92K',
-    qualified: true,
-    summary: 'Grocery store fall; documented treatment and liability dispute.',
-  },
-] as const;
-
 export const MOCK_ROWS = [
   {
     caller: 'Caller · (570) 332-2862',

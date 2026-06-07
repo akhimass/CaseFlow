@@ -14,13 +14,99 @@ type Json = Record<string, unknown>;
 
 const T = Math.floor(Date.now() / 1000) - 420;
 
-const FIRMS: Record<string, { name: string; phone: string }> = {
-  pacific_heights: { name: 'Pacific Heights Injury Law', phone: '(415) 555-0101' },
-  mission_legal: { name: 'Mission Legal Advocates', phone: '(415) 555-0102' },
-  golden_gate: { name: 'Golden Gate Accident Attorneys', phone: '(415) 555-0103' },
-  chen_omalley: { name: "Chen & O'Malley LLP", phone: '(415) 555-0104' },
-  bay_counsel: { name: 'Bay Counsel Injury Group', phone: '(415) 555-0105' },
+type FirmMeta = {
+  name: string;
+  phone: string;
+  specialties: string[];
+  rating: string;
+  years: string;
+  response: string;
 };
+
+const FIRMS: Record<string, FirmMeta> = {
+  pacific_heights: {
+    name: 'Pacific Heights Injury Law',
+    phone: '(415) 555-0101',
+    specialties: ['auto', 'rear_end', 'general_pi'],
+    rating: '4.9',
+    years: '18',
+    response: '2',
+  },
+  mission_legal: {
+    name: 'Mission Legal Advocates',
+    phone: '(415) 555-0102',
+    specialties: ['pedestrian', 'auto', 'mva'],
+    rating: '4.7',
+    years: '12',
+    response: '3',
+  },
+  golden_gate: {
+    name: 'Golden Gate Accident Attorneys',
+    phone: '(415) 555-0103',
+    specialties: ['motorcycle', 'auto', 'mva'],
+    rating: '4.8',
+    years: '15',
+    response: '2',
+  },
+  chen_omalley: {
+    name: "Chen & O'Malley LLP",
+    phone: '(415) 555-0104',
+    specialties: ['slip_fall', 'premises', 'high_value'],
+    rating: '4.9',
+    years: '22',
+    response: '4',
+  },
+  bay_counsel: {
+    name: 'Bay Counsel Injury Group',
+    phone: '(415) 555-0105',
+    specialties: ['general_pi', 'auto', 'pedestrian'],
+    rating: '4.6',
+    years: '10',
+    response: '2',
+  },
+};
+
+// Build the Moss firm-lead cards (matched firm + two alternatives), each carrying
+// its own grounding evidence — mirrors what retrieval.firm_leads emits live.
+function firmLeads(c: CaseInput): Json[] {
+  const top = c.firm_id;
+  const alts = Object.keys(FIRMS)
+    .filter((id) => id !== top)
+    .slice(0, 2);
+  const solNote = c.streams.law.text.slice(0, 130);
+  const range = c.streams.settlement.amount_range;
+  const langs = c.language === 'es' ? ['es', 'en'] : ['en', 'es'];
+  return [top, ...alts].map((id, i) => {
+    const f = FIRMS[id];
+    const isTop = i === 0;
+    return {
+      firm_id: id,
+      name: f.name,
+      phone: f.phone,
+      languages: langs,
+      specialties: f.specialties,
+      score: isTop ? c.match_score : Math.max(58, c.match_score - 9 - i * 6),
+      match_reasons: isTop
+        ? c.streams.firm.reasons
+        : ['Jurisdiction match (CA)', `Bilingual ${langs.join('/')} intake`],
+      rating: f.rating,
+      years_experience: f.years,
+      response_time_hours: f.response,
+      comparable_range: range,
+      jurisdiction_note: solNote,
+      profile_excerpt: `${f.name} — ${f.specialties.join(', ').replace(/_/g, ' ')}.`,
+    };
+  });
+}
+
+// The citation trail: which retrieval IDs the agent cited, in order.
+function citationTrail(c: CaseInput): Json[] {
+  return c.citations.map((id, i) => ({
+    citation_id: id,
+    timestamp: T + 40 + i * 6,
+    turn: 3 + i,
+  }));
+}
 
 type StreamInput = {
   law: {
@@ -148,6 +234,8 @@ function buildCase(c: CaseInput): Json {
       },
     ],
     moss_retrievals: mossStreams(c.streams),
+    moss_firm_leads: firmLeads(c),
+    moss_citations: citationTrail(c),
     caseflow_decision: {
       synthesis: c.synthesis,
       confidence: Math.min(0.97, c.score / 100 + 0.08),

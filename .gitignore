@@ -31,3 +31,4 @@ firstcall-reference/
 # Human scratch space
 notes/*
 !notes/.gitkeep
+.vercel

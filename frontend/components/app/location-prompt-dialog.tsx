@@ -13,6 +13,7 @@ const COPY = {
     placeholder: 'San Francisco, CA',
     useLocation: 'Use my location',
     confirm: 'Continue',
+    skip: 'Skip — use San Francisco, CA',
     locating: 'Finding location…',
     geoError: 'Could not detect location — enter your city below.',
   },
@@ -22,6 +23,7 @@ const COPY = {
     placeholder: 'San Francisco, CA',
     useLocation: 'Usar mi ubicación',
     confirm: 'Continuar',
+    skip: 'Omitir — usar San Francisco, CA',
     locating: 'Buscando ubicación…',
     geoError: 'No pudimos detectar la ubicación — ingrese su ciudad abajo.',
   },
@@ -69,28 +71,31 @@ export function LocationPromptDialog({ open, onConfirmed }: Props) {
     }
   }, [open]);
 
-  const confirm = useCallback(async () => {
-    const value = location.trim() || DEFAULT_LOCATION;
-    const record = getConsentRecord();
-    if (!record) return;
-    setBusy(true);
-    setConsentRecord({ ...record, caller_location: value });
-    try {
-      await fetch('/api/cases/consent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          case_id: record.case_id,
-          consent_given_at: record.consent_given_at,
-          caller_location: value,
-        }),
-      });
-    } catch {
-      // local session still has location for agent metadata
-    }
-    setBusy(false);
-    onConfirmed();
-  }, [location, onConfirmed]);
+  const confirm = useCallback(
+    async (valueOverride?: string) => {
+      const value = (valueOverride ?? location).trim() || DEFAULT_LOCATION;
+      const record = getConsentRecord();
+      if (!record) return;
+      setBusy(true);
+      setConsentRecord({ ...record, caller_location: value });
+      try {
+        await fetch('/api/cases/consent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            case_id: record.case_id,
+            consent_given_at: record.consent_given_at,
+            caller_location: value,
+          }),
+        });
+      } catch {
+        // local session still has location for agent metadata
+      }
+      setBusy(false);
+      onConfirmed();
+    },
+    [location, onConfirmed]
+  );
 
   const useMyLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -144,11 +149,21 @@ export function LocationPromptDialog({ open, onConfirmed }: Props) {
             type="button"
             className="flex-1"
             disabled={busy || !location.trim()}
-            onClick={confirm}
+            onClick={() => confirm()}
           >
             {t.confirm}
           </Button>
         </div>
+        <Button
+          type="button"
+          variant="ghost"
+          className="mt-2 w-full"
+          size="sm"
+          disabled={busy}
+          onClick={() => confirm(DEFAULT_LOCATION)}
+        >
+          {t.skip}
+        </Button>
       </div>
     </dialog>
   );

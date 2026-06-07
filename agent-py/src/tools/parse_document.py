@@ -36,6 +36,10 @@ DOC_TYPE_ALIASES = {"insurance_letter": "insurance"}
 LOW_CONFIDENCE_THRESHOLD = 0.75
 POLL_INTERVAL_S = 1.5
 MAX_POLLS = 20
+# Unsiloed job states (GET /parse/{job_id} -> status). Real values are
+# "Starting" / "Succeeded" / "Failed"; we accept synonyms defensively.
+_SUCCESS_STATES = {"succeeded", "completed", "complete", "success", "done"}
+_FAILED_STATES = {"failed", "error", "cancelled", "canceled"}
 
 # Per-doc-type field confidences for the demo path. Each doc carries at least one
 # intentionally lower field so the "verify with caller" UI is exercised.
@@ -135,7 +139,13 @@ async def parse_document(image_base64: str, doc_type: str) -> dict[str, Any]:
                 )
                 status.raise_for_status()
                 body = status.json()
-                if body.get("status") == "completed":
+                state = str(body.get("status", "")).lower()
+                if state in _FAILED_STATES:
+                    raise RuntimeError(
+                        f"Unsiloed parse failed: {body.get('message') or body.get('error') or state}"
+                    )
+                # Unsiloed reports success as "Succeeded"; accept common synonyms too.
+                if state in _SUCCESS_STATES or body.get("chunks"):
                     poll_ms = (time.perf_counter() - poll_start) * 1000.0
                     fields, confidence = _extract_fields(body, doc_type)
                     logger.info(
@@ -192,44 +202,101 @@ def _demo_parse(doc_type: str) -> dict[str, Any]:
     return {"doc_type": doc_type, "parsed_summary": "Insurance letter received."}
 
 
-def _find_confidence(body: Any) -> float | None:
-    """Best-effort pull of an overall confidence/score from an Unsiloed response."""
-    if isinstance(body, dict):
-        for key in ("confidence", "score", "grade", "avg_confidence"):
-            val = body.get(key)
-            if isinstance(val, (int, float)):
-                return float(val) if val <= 1 else float(val) / 100.0
-        for v in body.values():
-            found = _find_confidence(v)
-            if found is not None:
-                return found
-    elif isinstance(body, list):
-        for v in body:
-            found = _find_confidence(v)
-            if found is not None:
-                return found
-    return None
+def _chunk_text(body: dict[str, Any]) -> str:
+    """Reconstruct the document text from Unsiloed chunks/segments.
+
+    Unsiloed returns ``chunks[].embed`` (a ready-to-embed text join) and
+    ``chunks[].segments[].content/markdown/html``. Prefer ``embed``; fall back to
+    joining segment text.
+    """
+    parts: list[str] = []
+    for chunk in body.get("chunks", []) or []:
+        if not isinstance(chunk, dict):
+            continue
+        embed = chunk.get("embed")
+        if embed:
+            parts.append(str(embed))
+            continue
+        for seg in chunk.get("segments", []) or []:
+            if not isinstance(seg, dict):
+                continue
+            text = seg.get("content") or seg.get("markdown") or seg.get("html") or ""
+            if text:
+                parts.append(str(text))
+    return "\n".join(parts).strip()
+
+
+def _segment_confidence(body: dict[str, Any]) -> float:
+    """Average segment + OCR confidence from the Unsiloed response (0..1)."""
+    vals: list[float] = []
+    for chunk in body.get("chunks", []) or []:
+        for seg in (chunk.get("segments", []) if isinstance(chunk, dict) else []) or []:
+            if not isinstance(seg, dict):
+                continue
+            c = seg.get("confidence")
+            if isinstance(c, (int, float)):
+                vals.append(float(c))
+            for o in seg.get("ocr", []) or []:
+                oc = o.get("confidence") if isinstance(o, dict) else None
+                if isinstance(oc, (int, float)):
+                    vals.append(float(oc))
+    if not vals:
+        return 0.8
+    avg = sum(vals) / len(vals)
+    return avg if avg <= 1 else avg / 100.0
 
 
 def _extract_fields(
     body: dict[str, Any], doc_type: str
 ) -> tuple[dict[str, Any], dict[str, float]]:
-    text = json.dumps(body)
-    lowered = text.lower()
-    fields: dict[str, Any] = {"doc_type": doc_type, "raw_excerpt": text[:1200]}
-    if "undetermined" in lowered or "fault" in lowered:
-        match = re.search(r"fault[^a-z]{0,20}(\w+)", lowered)
-        fields["fault_determination"] = match.group(1) if match else "undetermined"
-    if "whiplash" in lowered or "cervical" in lowered:
-        fields["primary_diagnosis"] = "whiplash / cervical strain"
-    if "mri" in lowered:
-        fields["imaging_ordered"] = "MRI ordered"
-    if doc_type == "police_report" and not fields.get("fault_determination"):
-        fields["fault_determination"] = "undetermined"
+    full_text = _chunk_text(body) or json.dumps(body)
+    lowered = full_text.lower()
+    fields: dict[str, Any] = {
+        "doc_type": doc_type,
+        "markdown": full_text[:4000],
+        "raw_excerpt": full_text[:1200],
+    }
 
-    # Confidence: use Unsiloed's score if present, else a moderate heuristic.
-    base = _find_confidence(body) or 0.8
+    if doc_type == "police_report":
+        if "undetermin" in lowered:
+            fields["fault_determination"] = "undetermined"
+        else:
+            m = re.search(r"fault[^a-z0-9]{0,20}([a-z0-9 ]{3,30})", lowered)
+            fields["fault_determination"] = m.group(1).strip() if m else "undetermined"
+        loc = re.search(r"location[:\s]+([^\n]+)", full_text, re.I)
+        if loc:
+            fields["location"] = loc.group(1).strip()[:80]
+        date = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", full_text)
+        if date:
+            fields["incident_date"] = date.group(1)
+        rep = re.search(r"(?:report|case)\s*(?:number|no\.?|#)?[:\s]*([A-Z]{1,4}-?\d[\w\-]+)", full_text, re.I)
+        if rep:
+            fields["report_number"] = rep.group(1)
+        claim = re.search(r"(right of way|ran the(?: red)? light|claimed[^\n]{0,40})", lowered)
+        if claim:
+            fields["other_driver_claim"] = claim.group(0).strip()[:80]
+    elif doc_type == "er_discharge":
+        if "whiplash" in lowered or "cervical" in lowered:
+            fields["primary_diagnosis"] = "whiplash / cervical strain"
+        else:
+            dx = re.search(r"(?:diagnosis|impression)[:\s]+([^\n]+)", full_text, re.I)
+            if dx:
+                fields["primary_diagnosis"] = dx.group(1).strip()[:100]
+        if "mri" in lowered:
+            fields["imaging_ordered"] = "MRI ordered"
+        elif "x-ray" in lowered or "xray" in lowered:
+            fields["imaging_ordered"] = "X-ray ordered"
+        di = re.search(r"(?:discharge instructions?|follow[- ]?up)[:\s]+([^\n]+)", full_text, re.I)
+        if di:
+            fields["discharge_instructions"] = di.group(1).strip()[:160]
+        date = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", full_text)
+        if date:
+            fields["visit_date"] = date.group(1)
+    else:
+        fields["parsed_summary"] = full_text[:300] or "Insurance document received."
+
+    base = _segment_confidence(body)
     confidence = {
-        k: base for k in fields if k not in ("doc_type", "raw_excerpt")
+        k: base for k in fields if k not in ("doc_type", "raw_excerpt", "markdown")
     }
     return fields, confidence

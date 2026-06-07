@@ -4,7 +4,11 @@ import pytest
 
 from consistency import check_cross_document, extract_injury_keywords
 from retrieval import Retriever
-from tools.parse_document import parse_document
+from tools.parse_document import (
+    _extract_score,
+    _map_extract_result,
+    parse_document,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +36,10 @@ def test_cross_document_region_mismatch() -> None:
     er = {"primary_diagnosis": "cervical strain (neck)"}
     conflict = check_cross_document(police, er, "en")
     assert conflict and conflict["conflict_type"] == "cross_document"
-    assert "head" in conflict["clarifying_question"] or "neck" in conflict["clarifying_question"]
+    assert (
+        "head" in conflict["clarifying_question"]
+        or "neck" in conflict["clarifying_question"]
+    )
 
 
 def test_cross_document_consistent_no_conflict() -> None:
@@ -54,17 +61,72 @@ async def test_parse_demo_has_confidence_and_source(monkeypatch) -> None:
     assert "other_driver_claim" in meta["low_confidence"]
 
 
+# -- Unsiloed /v2/extract schema mapping (real response shape) -------------- #
+def test_extract_score_floors_present_values() -> None:
+    # Low absolute extraction score but a present value → floored to 0.6.
+    obj = {
+        "value": "Orange County, CA",
+        "score": {"grounding_score": 0.0, "extraction_score": 0.2},
+    }
+    assert _extract_score(obj) == 0.6
+    # Strong grounding wins.
+    strong = {"value": "x", "score": {"grounding_score": 0.95, "extraction_score": 0.2}}
+    assert _extract_score(strong) == 0.95
+    # No value → no floor.
+    empty = {"value": "", "score": {"grounding_score": 0.0, "extraction_score": 0.1}}
+    assert _extract_score(empty) == 0.1
+
+
+def test_map_extract_result_police_report() -> None:
+    result = {
+        "document_type": {"value": "police_report", "score": {"extraction_score": 0.9}},
+        "fault_determination": {
+            "value": "undetermined",
+            "score": {"extraction_score": 0.88},
+        },
+        "location": {"value": "Orange County, CA", "score": {"extraction_score": 0.2}},
+        "report_number": {"value": "", "score": {"extraction_score": 0.0}},
+    }
+    fields, confidence = _map_extract_result(result, "police_report")
+    assert fields["doc_type"] == "police_report"
+    assert fields["fault_determination"] == "undetermined"
+    assert "report_number" not in fields  # empty value dropped
+    assert confidence["location"] == 0.6  # floored
+    assert "unexpected_document" not in fields
+
+
+def test_map_extract_result_flags_wrong_document() -> None:
+    # Caller showed a license but the agent asked for a police report.
+    result = {
+        "document_type": {
+            "value": "driver_license",
+            "score": {"extraction_score": 0.95},
+        },
+        "report_number": {"value": "DL-9981", "score": {"extraction_score": 0.9}},
+    }
+    fields, _ = _map_extract_result(result, "police_report")
+    assert fields["doc_type"] == "driver_license"
+    assert fields["unexpected_document"] is True
+    assert fields["requested_doc_type"] == "police_report"
+    assert "license" in fields["parsed_summary"].lower()
+
+
 # -- Enhancement C wiring: injury keywords sharpen the comparables query ----- #
 class _Doc:
     def __init__(self):
-        self.text, self.score, self.metadata, self.id = "x", 0.9, {
-            "accident_type": "rear_end",
-            "jurisdiction": "CA",
-            "severity": "medium",
-            "fault": "contested",
-            "amount_low": "45000",
-            "amount_high": "80000",
-        }, "ca-rear-end-med-contested"
+        self.text, self.score, self.metadata, self.id = (
+            "x",
+            0.9,
+            {
+                "accident_type": "rear_end",
+                "jurisdiction": "CA",
+                "severity": "medium",
+                "fault": "contested",
+                "amount_low": "45000",
+                "amount_high": "80000",
+            },
+            "ca-rear-end-med-contested",
+        )
 
 
 class _Result:
@@ -86,7 +148,9 @@ class _RecordingMoss:
 async def test_comparables_query_includes_injury_keywords() -> None:
     moss = _RecordingMoss()
     r = Retriever(moss, cache={})
-    await r.comparables("rear_end", "CA", "medium", "contested", injury_keywords=["whiplash"])
+    await r.comparables(
+        "rear_end", "CA", "medium", "contested", injury_keywords=["whiplash"]
+    )
     assert any("whiplash" in q for q in moss.queries)
 
 

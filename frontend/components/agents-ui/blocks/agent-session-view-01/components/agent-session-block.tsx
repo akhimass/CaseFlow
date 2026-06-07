@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { type MotionProps, motion } from 'motion/react';
+import { toast } from 'sonner';
 import { useAgent, useSessionContext, useSessionMessages } from '@livekit/components-react';
 import {
   AgentControlBar,
@@ -140,6 +141,22 @@ export function AgentSessionView_01({
   const documentParseEvents = useDocumentParseEvents();
   const firmRecommendations = useFirmRecommendations();
   useDocumentCapture();
+
+  // Surface document parsing prominently as a toast — the panel can be below the
+  // fold, so this guarantees the caller sees "Reading your document…" / done.
+  const lastParseRef = React.useRef<string>('');
+  React.useEffect(() => {
+    const latest = documentParseEvents[0];
+    if (!latest) return;
+    const key = `${latest.docType}:${latest.status}`;
+    if (key === lastParseRef.current) return;
+    lastParseRef.current = key;
+    if (latest.status === 'parsing') {
+      toast.loading('Reading your document…', { id: `doc-${latest.docType}` });
+    } else if (latest.status === 'parsed') {
+      toast.success('Document read', { id: `doc-${latest.docType}`, duration: 3000 });
+    }
+  }, [documentParseEvents]);
 
   const controls: AgentControlBarControls = {
     leave: true,

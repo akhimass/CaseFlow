@@ -26,12 +26,21 @@ function docLabel(docType: string, lang: string): string {
   return lang.startsWith('es') ? labels.es : labels.en;
 }
 
+// Cap the longest side so a full-res phone frame (often 1920px+) doesn't make
+// Unsiloed parsing crawl. ~1400px keeps document text legible for OCR while
+// cutting parse time substantially.
+const MAX_FRAME_PX = 1400;
+
 async function captureLocalVideoFrame(videoElement: HTMLVideoElement): Promise<string | null> {
-  const width = videoElement.videoWidth;
-  const height = videoElement.videoHeight;
-  if (!width || !height) {
+  const vw = videoElement.videoWidth;
+  const vh = videoElement.videoHeight;
+  if (!vw || !vh) {
     return null;
   }
+
+  const scale = Math.min(1, MAX_FRAME_PX / Math.max(vw, vh));
+  const width = Math.round(vw * scale);
+  const height = Math.round(vh * scale);
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -41,7 +50,7 @@ async function captureLocalVideoFrame(videoElement: HTMLVideoElement): Promise<s
     return null;
   }
   ctx.drawImage(videoElement, 0, 0, width, height);
-  return canvas.toDataURL('image/jpeg', 0.92);
+  return canvas.toDataURL('image/jpeg', 0.86);
 }
 
 function findLocalVideoElement(): HTMLVideoElement | null {

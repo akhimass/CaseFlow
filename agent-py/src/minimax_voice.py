@@ -332,6 +332,19 @@ def build_caseflow_stt() -> stt.STT:
     return inference.STT(model=caseflow_stt_model(), language=MULTILINGUAL_STT_LANGUAGE)
 
 
+def _is_mostly_latin(text: str) -> bool:
+    """True if the alphabetic characters are predominantly Latin script.
+
+    en/es (incl. accents áéíóúñ, which sit below U+0250) are Latin; Devanagari,
+    Arabic, CJK, Cyrillic, etc. are not. Used to drop STT mis-transcriptions.
+    """
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return True
+    latin = sum(1 for c in letters if ord(c) < 0x250)
+    return latin / len(letters) >= 0.6
+
+
 class LoggingSTT(stt.STT):
     """Deepgram nova-3 STT with bilingual logging; MiniMax handles TTS."""
 
@@ -407,6 +420,18 @@ class _LoggingRecognizeStream(stt.RecognizeStream):
         pump_task = asyncio.create_task(pump_input())
         try:
             async for event in self._inner:
+                # Callers only speak English/Spanish (Latin script). Deepgram's
+                # multilingual model can mis-transcribe a noisy/accented utterance
+                # into another language's script (e.g. Hindi/Devanagari). Drop any
+                # transcript that is mostly non-Latin so the garbage never reaches
+                # the LLM, the caller's transcript, or the firm dashboard.
+                if event.alternatives:
+                    _txt = event.alternatives[0].text or ""
+                    if _txt and not _is_mostly_latin(_txt):
+                        logger.info(
+                            "CASEFLOW_STT dropped non-Latin transcript: %r", _txt[:60]
+                        )
+                        continue
                 if event.type == stt.SpeechEventType.START_OF_SPEECH:
                     self._speech_start = time.perf_counter()
                     if self._state.metrics:

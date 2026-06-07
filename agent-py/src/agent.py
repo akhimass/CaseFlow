@@ -44,6 +44,8 @@ from minimax_voice import (
     VoiceSessionState,
     apply_tts_options,
     build_caseflow_voice,
+    caseflow_stt_model,
+    deepgram_configured,
     log_tts_request,
     normalize_lang,
     resolve_caller_language,
@@ -1263,12 +1265,21 @@ async def my_agent(ctx: JobContext):
             )
 
         assistant._spawn(_after_transcript())
+        stt_engine = session.stt
         assistant._spawn(
             assistant._broadcast_voice_event(
                 "voice_stt",
                 voice_stt_payload(
-                    provider="Deepgram",
-                    model=os.getenv("DEEPGRAM_MODEL", "nova-3"),
+                    provider=stt_engine.provider
+                    if isinstance(stt_engine, LoggingSTT)
+                    else ("Deepgram" if deepgram_configured() else "LiveKit-Inference"),
+                    model=stt_engine.model
+                    if isinstance(stt_engine, LoggingSTT)
+                    else (
+                        os.getenv("DEEPGRAM_MODEL", "nova-3")
+                        if deepgram_configured()
+                        else caseflow_stt_model()
+                    ),
                     language=lang,
                     transcript=ev.transcript,
                 ),

@@ -12,6 +12,7 @@ import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
 import { APP_CONFIG_DEFAULTS } from '@/app-config';
 import { AgentChatTranscript } from '@/components/agents-ui/agent-chat-transcript';
 import { AgentSessionProvider } from '@/components/agents-ui/agent-session-provider';
+import { AudioVisualizer } from '@/components/agents-ui/blocks/agent-session-view-01/components/audio-visualizer';
 import { StartAudioButton } from '@/components/agents-ui/start-audio-button';
 import { FirmCasesView } from '@/components/firm/dashboard/firm-cases-view';
 import { FirmCounselControls } from '@/components/firm/dashboard/firm-counsel-controls';
@@ -28,17 +29,53 @@ function FirmAgentSetup() {
   return null;
 }
 
+function FirmCounselVisualizer({ firmName }: { firmName: string }) {
+  const { state: agentState } = useVoiceAssistant();
+  const connecting = agentState === 'connecting' || agentState === 'initializing';
+
+  return (
+    <div className="border-border bg-background flex h-full min-h-[20rem] flex-col items-center justify-center rounded-2xl border px-6 py-8 text-center lg:min-h-0">
+      <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+        Caseflowy Counsel
+      </p>
+      <h2 className="mt-2 text-xl font-semibold tracking-tight">Your marketplace command center</h2>
+      <p className="text-muted-foreground mt-2 max-w-sm text-sm leading-relaxed">
+        Matched leads are in the cases hub below. Use the mic in the conversation panel to talk.
+      </p>
+
+      <div className="relative mt-6 flex h-32 w-full items-center justify-center">
+        <AudioVisualizer
+          isChatOpen={false}
+          audioVisualizerType="aura"
+          audioVisualizerColor="#2563EB"
+          className="!size-32"
+        />
+      </div>
+
+      <p className="text-muted-foreground mt-4 min-h-[2.5rem] max-w-sm text-sm leading-relaxed">
+        {connecting
+          ? 'Connecting to Caseflowy Counsel…'
+          : agentState === 'speaking'
+            ? 'Counsel is speaking — follow along in the transcript.'
+            : agentState === 'listening'
+              ? 'Listening — speak anytime.'
+              : `Welcome back${firmName ? `, ${firmName}` : ''}. Counsel is ready.`}
+      </p>
+    </div>
+  );
+}
+
 function FirmCounselConversation() {
   const session = useSessionContext();
   const { messages } = useSessionMessages(session);
   const { state: agentState } = useVoiceAssistant();
 
   return (
-    <div className="border-border bg-background flex h-full min-h-[28rem] flex-col overflow-hidden rounded-2xl border lg:min-h-0">
+    <div className="border-border bg-background flex h-full min-h-[20rem] flex-col overflow-hidden rounded-2xl border lg:min-h-0">
       <div className="border-border shrink-0 border-b px-4 py-3">
         <h2 className="text-sm font-semibold tracking-tight">Conversation</h2>
         <p className="text-muted-foreground text-xs">
-          Caseflowy Counsel — turn your mic on to talk; transcript updates live
+          Turn your mic on to talk — transcript updates here live
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
@@ -65,24 +102,26 @@ function FirmHomeContent({
   onSelectCase: (caseId: string) => void;
 }) {
   return (
-    <div className="grid min-h-[min(72vh,720px)] gap-4 lg:grid-cols-2">
-      <div className="flex min-h-0 flex-col overflow-hidden">
-        <div className="mb-3 shrink-0">
+    <div className="flex flex-col gap-4">
+      <div className="grid min-h-[min(42vh,420px)] gap-4 lg:grid-cols-2">
+        <FirmCounselVisualizer firmName={session.firm_name} />
+        <FirmCounselConversation />
+      </div>
+
+      <section className="border-border bg-background rounded-2xl border p-4 sm:p-5">
+        <div className="mb-4">
           <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
             Cases hub
           </p>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight">
+          <h2 className="mt-1 text-lg font-semibold tracking-tight">
             Matched leads for {session.firm_name}
-          </h1>
+          </h2>
           <p className="text-muted-foreground mt-1 text-sm">
             Live intakes matched to your firm — open a dossier or start a voice briefing.
           </p>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          <FirmCasesView firmCases={firmCases} onSelectCase={onSelectCase} />
-        </div>
-      </div>
-      <FirmCounselConversation />
+        <FirmCasesView firmCases={firmCases} onSelectCase={onSelectCase} />
+      </section>
     </div>
   );
 }

@@ -94,8 +94,8 @@ function FirmInfoPanel({ session }: { session: FirmSession }) {
       <h2 className="text-lg font-semibold">{session.firm_name}</h2>
       {session.city ? <p className="text-muted-foreground text-sm">{session.city}</p> : null}
       <p className="text-muted-foreground text-sm leading-relaxed">
-        Home is your cases hub with Caseflowy Counsel on the right — open any matched lead for the
-        full dossier or a voice briefing.
+        Home pairs Caseflowy Counsel with a live transcript up top and your matched leads in the
+        cases hub below — open any lead for the full dossier or a voice briefing.
       </p>
       <Button asChild variant="outline" size="sm">
         <Link href="/firm/login">Switch firm</Link>

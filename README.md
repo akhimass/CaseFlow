@@ -79,21 +79,45 @@ Spanish, retrieves CA rear-end comparables and the 2-year filing window, values
 the case, and surfaces matched firms — all visible on the firm dashboard in real
 time.
 
-## Startup timeline
+## Roadmap
 
-- **Jun 2026 — YC Conversational AI Hackathon.** Working bilingual intake, live
-  retrieval across four Moss indexes, document parsing, discrepancy detection,
-  valuation, firm matching, iOS + web clients.
-- **Q3 2026 — Design partners.** 3–5 PI firms in CA/TX/FL running real after-hours
-  and Spanish-language intake; ingest each firm's own intake criteria into Moss.
-- **Q4 2026 — Marketplace.** Move from seeded partner firms to matching against
-  full firm directories (State Bar, Avvo, Martindale); per-case routing with
-  feedback-driven re-ranking.
-- **2027 — Scale the vertical.** Expand jurisdictional law coverage state by
-  state; add case types end-to-end; on-device offline legal reference on iOS for
-  field use. Expand the same audited-intake pattern to adjacent verticals
-  (immigration, family, employment) where multilingual, document-heavy intake is
-  the bottleneck.
+**✅ Shipped — Jun 2026 · YC Conversational AI Hackathon.** Bilingual (EN/ES) video
+intake, live retrieval across four Moss indexes (state law, settlements, firms,
+procedures), real-time Unsiloed document parsing, an AI-to-AI consistency audit
+that catches narrative-vs-evidence discrepancies, comparable-grounded case
+valuation, firm matching with a verbal briefing, and a generated case-file PDF —
+on web and native iOS.
+
+**Q3 2026 — Design partners & conversion.** 3–5 PI firms across CA/TX/FL running
+production intake, with after-hours and Spanish coverage as the wedge. Instrument
+the full funnel (arrive → intake → match → consult → retained) as the north-star
+metric. Each firm's acceptance criteria ingested into private Moss namespaces;
+languages add Mandarin, Vietnamese, Tagalog, Russian. HIPAA BAAs across the stack;
+SOC 2 Type I initiated.
+
+**Q4 2026 — Marketplace & vertical depth.** Move from seeded firms to full
+directory ingestion (State Bars, Avvo, Martindale, Justia) with capacity-aware
+best-match routing — a two-sided loop where more callers sharpen matching and
+attract more firms. Case types expand end-to-end (auto, premises, workplace
+third-party, med-mal, product liability, wrongful death). SOC 2 Type II.
+
+**H1 2027 — Adjacent verticals, language depth, offline iOS.** The same
+audited-intake pattern extends to immigration, family, and employment law — all
+multilingual, document-heavy, deadline-critical. 20+ languages via MiniMax + Moss
+with no code changes. iOS gains an offline mode (cached state law, checklists, a
+local consistency engine) for accident scenes and waiting rooms — HIPAA-respecting,
+no sensitive data persisted on device.
+
+**H2 2027 — Category position & white-label.** All 50 states for PI, self-serve
+onboarding for any licensed attorney, and white-label for multi-state firms.
+North-star: the share of U.S. personal-injury cases that originate through
+Caseflowy. **What Stripe is to payments, Caseflowy is to high-stakes legal intake.**
+
+**2028+ — International & standards.** Replicate where multilingual, document-heavy
+intake is most underserved (Canada EN/FR, Spain & LATAM, Western Europe).
+Open-source the intake schema and the audit-of-claim layer as a spec so any agent
+can prove its intake was honest and evidence-grounded — we run the reference
+implementation.
 
 ---
 

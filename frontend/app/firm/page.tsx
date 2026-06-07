@@ -18,7 +18,7 @@ import { GuardrailsDashboard } from '@/components/firm/dashboard/guardrails';
 import { LeadHeader } from '@/components/firm/dashboard/lead-header';
 import { MossOverview } from '@/components/firm/dashboard/moss-overview';
 import { TrueFoundryPrivacyDashboard } from '@/components/firm/dashboard/truefoundry-privacy';
-import { SectionHeader } from '@/components/firm/dashboard/viz';
+import { SectionHeader, estimatedValue, formatUsd } from '@/components/firm/dashboard/viz';
 import { DocumentsPanel } from '@/components/firm/documents-panel';
 import { LiveTranscriptPanel } from '@/components/firm/live-transcript-panel';
 import { MossEvidenceTrail } from '@/components/firm/moss-evidence-trail';
@@ -88,18 +88,92 @@ function CaseDetail({
   );
 }
 
-function FirmInfoPanel({ session }: { session: FirmSession }) {
+const ACCIDENT_LABEL: Record<string, string> = {
+  rear_end: 'Rear-end',
+  t_bone: 'T-bone',
+  slip_fall: 'Slip & fall',
+  dog_bite: 'Dog bite',
+  motorcycle: 'Motorcycle',
+  pedestrian: 'Pedestrian',
+  premises: 'Premises',
+  auto: 'Auto',
+};
+
+function FirmInfoPanel({ session, cases }: { session: FirmSession; cases: CaseRecord[] }) {
+  const total = cases.length;
+  const byType: Record<string, number> = {};
+  const byStatus: Record<string, number> = {};
+  let pipeline = 0;
+  let qualified = 0;
+  for (const c of cases) {
+    const t = String(c.accident_type ?? 'other');
+    byType[t] = (byType[t] ?? 0) + 1;
+    const s = String(c.status ?? c.last_event ?? 'new');
+    byStatus[s] = (byStatus[s] ?? 0) + 1;
+    pipeline += estimatedValue(c);
+    if (Number(c.score ?? c.case_strength ?? 0) >= 40) qualified += 1;
+  }
+  const types = Object.entries(byType).sort((a, b) => b[1] - a[1]);
+  const maxType = Math.max(1, ...types.map(([, n]) => n));
+
   return (
-    <div className="border-border bg-background max-w-lg space-y-3 rounded-xl border p-6">
-      <h2 className="text-lg font-semibold">{session.firm_name}</h2>
-      {session.city ? <p className="text-muted-foreground text-sm">{session.city}</p> : null}
-      <p className="text-muted-foreground text-sm leading-relaxed">
-        Home pairs Caseflowy Counsel with a live transcript up top and your matched leads in the
-        cases hub below — open any lead for the full dossier or a voice briefing.
-      </p>
-      <Button asChild variant="outline" size="sm">
-        <Link href="/firm/login">Switch firm</Link>
-      </Button>
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">{session.firm_name}</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {session.city ? `${session.city} · ` : ''}Firm breakdown
+          </p>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/firm/login">Switch firm</Link>
+        </Button>
+      </div>
+
+      {total === 0 ? (
+        <p className="text-muted-foreground text-sm">No matched cases yet.</p>
+      ) : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-4">
+            {[
+              { label: 'Matched cases', value: String(total) },
+              { label: 'Qualified', value: `${qualified}/${total}` },
+              { label: 'Pipeline value', value: formatUsd(pipeline) },
+              {
+                label: 'Booked',
+                value: String((byStatus['booked'] ?? 0) + (byStatus['consult_booked'] ?? 0)),
+              },
+            ].map((k) => (
+              <div key={k.label} className="border-border bg-background rounded-xl border p-4">
+                <div className="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">
+                  {k.label}
+                </div>
+                <div className="mt-1 text-2xl font-bold tabular-nums">{k.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="border-border bg-background rounded-xl border p-5">
+            <h3 className="text-muted-foreground mb-3 text-xs font-semibold tracking-wide uppercase">
+              Case-type mix
+            </h3>
+            <div className="space-y-2">
+              {types.map(([t, n]) => (
+                <div key={t} className="flex items-center gap-3 text-sm">
+                  <span className="w-28 shrink-0">{ACCIDENT_LABEL[t] ?? t.replace(/_/g, ' ')}</span>
+                  <div className="bg-muted h-2.5 flex-1 overflow-hidden rounded-full">
+                    <div
+                      className="bg-primary h-full rounded-full"
+                      style={{ width: `${(n / maxType) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-muted-foreground w-6 text-right tabular-nums">{n}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -225,7 +299,7 @@ export default function FirmPage() {
           <FirmCasesView firmCases={firmCases} onSelectCase={openCase} />
         </div>
       ) : view === 'firm' ? (
-        <FirmInfoPanel session={session} />
+        <FirmInfoPanel session={session} cases={firmCases} />
       ) : null}
     </FirmDashboardShell>
   );

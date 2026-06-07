@@ -704,3 +704,226 @@ export const DEMO_CASES: Json[] = [
     redaction_categories: { name: 3, phone: 2, address: 2, dob: 1 },
   }),
 ];
+
+// --------------------------------------------------------------------------- #
+// Bulk caseload — gives EVERY partner firm a full pipeline of varied cases so
+// the home queue, Cases view, KPIs, and Moss overview/metrics are populated for
+// the demo (live intakes merge over these by case_id).
+// --------------------------------------------------------------------------- #
+const NAMES = [
+  'Carlos Ramirez',
+  'Aisha Khan',
+  'Daniel Cohen',
+  'Lucia Torres',
+  'Marcus Webb',
+  'Priya Nair',
+  'Sofia Marin',
+  'Andre Dubois',
+  'Hana Kim',
+  'Ethan Brooks',
+  'Valeria Cruz',
+  'Omar Haddad',
+  'Grace Liu',
+  'Diego Salas',
+  'Nora Bishop',
+  'Tomas Vega',
+  'Renee Adams',
+  'Ivan Rios',
+  'Mei Chen',
+  'Jamal Carter',
+  'Paola Mendez',
+  'Kevin Olsen',
+  'Rosa Iglesias',
+  'Sam Patel',
+  'Beatriz Lima',
+  'Noah Fischer',
+  'Camila Reyes',
+  'Tariq Aziz',
+  'Elena Sokol',
+  'Marco Bellini',
+];
+
+type Tmpl = {
+  type: string;
+  injuries: string;
+  fault: string;
+  lawId: string;
+  lawTitle: string;
+  lawText: string;
+  setId: string;
+  setTitle: string;
+  range: string;
+  procId: string;
+  procTitle: string;
+  procText: string;
+};
+
+const TEMPLATES: Tmpl[] = [
+  {
+    type: 'rear_end',
+    injuries: 'Whiplash, neck and back pain',
+    fault: 'Other driver hit me from behind',
+    lawId: 'state-law:ca-sol',
+    lawTitle: 'CA filing window — personal injury',
+    lawText:
+      'Two years from the date of injury to file a personal-injury claim in California (CCP §335.1).',
+    setId: 'settlements:ca-rear-end-moderate-contested',
+    setTitle: 'Rear-end · moderate',
+    range: '$45,000 – $95,000',
+    procId: 'procedures:post_accident_72h',
+    procTitle: 'First 72 hours',
+    procText:
+      'Document injuries, preserve the police report, avoid recorded statements until represented.',
+  },
+  {
+    type: 't_bone',
+    injuries: 'Concussion and shoulder sprain',
+    fault: 'They ran the intersection',
+    lawId: 'state-law:ca-negligence',
+    lawTitle: 'CA comparative negligence',
+    lawText: 'California pure comparative negligence — recovery reduced by your share of fault.',
+    setId: 'settlements:ca-tbone-high-clear',
+    setTitle: 'T-bone · high',
+    range: '$120,000 – $250,000',
+    procId: 'procedures:documenting_injuries',
+    procTitle: 'Documenting injuries',
+    procText: 'Photograph injuries and keep all imaging and treatment records.',
+  },
+  {
+    type: 'slip_fall',
+    injuries: 'Sprained ankle, ongoing PT',
+    fault: 'Wet floor, no warning sign',
+    lawId: 'state-law:ca-premises',
+    lawTitle: 'CA premises liability',
+    lawText: 'Owners owe reasonable care; liability needs notice of the hazard (Civ. Code §1714).',
+    setId: 'settlements:ca-slip-fall-med-clear',
+    setTitle: 'Slip & fall · moderate',
+    range: '$25,000 – $60,000',
+    procId: 'procedures:post_slip_fall_48h',
+    procTitle: 'First 48 hours after a fall',
+    procText: 'Photograph the hazard, request an incident report, see a doctor, keep your shoes.',
+  },
+  {
+    type: 'dog_bite',
+    injuries: 'Hand laceration, possible scarring',
+    fault: 'Unleashed dog bit me',
+    lawId: 'state-law:ca-dog-bite',
+    lawTitle: 'CA dog-bite strict liability',
+    lawText:
+      'California imposes strict liability on dog owners regardless of prior behavior (Civ. Code §3342).',
+    setId: 'settlements:ca-dog-bite-med-clear',
+    setTitle: 'Dog bite · moderate',
+    range: '$35,000 – $90,000',
+    procId: 'procedures:post_dog_bite_24h',
+    procTitle: 'First 24 hours after a bite',
+    procText:
+      'Get medical care, report to animal control, identify the owner, photograph injuries.',
+  },
+  {
+    type: 'motorcycle',
+    injuries: 'Road rash, wrist fracture',
+    fault: 'Car turned left into me',
+    lawId: 'state-law:ca-damages',
+    lawTitle: 'CA damages',
+    lawText: 'Economic and non-economic damages recoverable; no MICRA cap outside med-mal.',
+    setId: 'settlements:ca-motorcycle-high-clear',
+    setTitle: 'Motorcycle · high',
+    range: '$150,000 – $400,000',
+    procId: 'procedures:finding_doctor',
+    procTitle: 'Finding the right doctor',
+    procText: 'See a specialist promptly; consistent treatment supports the claim.',
+  },
+  {
+    type: 'pedestrian',
+    injuries: 'Leg fracture, hospitalized',
+    fault: 'Hit in the crosswalk',
+    lawId: 'state-law:ca-sol',
+    lawTitle: 'CA filing window',
+    lawText:
+      'Two years to file; claims against a public entity require a 6-month government claim.',
+    setId: 'settlements:ca-pedestrian-high-clear',
+    setTitle: 'Pedestrian · high',
+    range: '$200,000 – $500,000',
+    procId: 'procedures:post_accident_72h',
+    procTitle: 'First 72 hours',
+    procText: 'Get imaging, preserve the report, do not give a recorded statement.',
+  },
+];
+
+const STATUSES = ['matched', 'booked', 'intake', 'matched', 'booked', 'declined'];
+
+function generateCaseload(): Json[] {
+  const firms = Object.keys(FIRMS);
+  const out: Json[] = [];
+  let n = 0;
+  for (const firm of firms) {
+    for (let i = 0; i < 6; i++) {
+      const t = TEMPLATES[n % TEMPLATES.length];
+      const caller = NAMES[n % NAMES.length];
+      const lang = n % 3 === 0 ? 'es' : 'en';
+      const score = 52 + ((n * 17) % 44); // 52–95
+      const est =
+        score >= 78
+          ? 90000 + (n % 5) * 35000
+          : score >= 62
+            ? 45000 + (n % 4) * 12000
+            : 18000 + (n % 4) * 6000;
+      const status = STATUSES[n % STATUSES.length];
+      out.push(
+        buildCase({
+          case_id: `demo-${firm}-${i}`,
+          caller,
+          accident_type: t.type,
+          location: 'San Francisco, CA',
+          injuries: t.injuries,
+          fault_claim: t.fault,
+          language: lang,
+          score: status === 'declined' ? Math.min(score, 38) : score,
+          status,
+          last_event: status === 'booked' ? 'booked' : 'firms_matched',
+          est_value: est,
+          firm_id: firm,
+          match_score: Math.min(97, score + 5),
+          match_reason: `CA ${t.type.replace('_', ' ')} fit, serves San Francisco${lang === 'es' ? ', bilingual EN/ES' : ''}.`,
+          streams: {
+            law: {
+              id: t.lawId,
+              title: t.lawTitle,
+              subtitle: 'California',
+              text: t.lawText,
+              citation: t.lawTitle,
+              score: 0.93,
+            },
+            settlement: {
+              id: t.setId,
+              title: t.setTitle,
+              amount_range: t.range,
+              text: `Comparable ${t.type.replace('_', ' ')} outcomes in California.`,
+              score: 0.88,
+            },
+            firm: {
+              firm_id: firm,
+              reasons: [
+                `CA ${t.type.replace('_', ' ')} specialty`,
+                'Serves San Francisco',
+                lang === 'es' ? 'Bilingual EN/ES' : 'English intake',
+              ],
+              score: 0.9,
+            },
+            procedure: { id: t.procId, title: t.procTitle, text: t.procText, score: 0.82 },
+          },
+          synthesis: `${t.type.replace('_', ' ')} case in San Francisco. ${t.lawText} Comparable settlements ${t.range}.`,
+          citations: [t.lawId, t.setId],
+          verbal_summary: `${caller} reports a ${t.type.replace('_', ' ')} in San Francisco — ${t.injuries.toLowerCase()}. Comparable settlements range ${t.range}.`,
+          firm_brief: `${t.type.replace('_', ' ')}, ${lang === 'es' ? 'Spanish' : 'English'}, San Francisco. ${t.injuries}. Range ${t.range}.`,
+          redactions: 4 + (n % 6),
+          redaction_categories: { name: 2, phone: 1, address: n % 2 },
+        })
+      );
+      n++;
+    }
+  }
+  return out;
+}
+
+DEMO_CASES.push(...generateCaseload());

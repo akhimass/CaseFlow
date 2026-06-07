@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { SourceFeedback } from '@/components/firm/source-feedback';
 import type { CaseRecord } from '@/hooks/useCaseflowEvents';
 
 /** One retrieved snippet card pushed by the agent's Retriever. */
@@ -14,6 +15,8 @@ type MossSnippet = {
   amount_range?: string;
   reasons?: string[];
   phone?: string;
+  source_url?: string;
+  feedback?: number;
 };
 
 /** One Moss retrieval event (a stream firing once). */
@@ -81,11 +84,15 @@ function SnippetCard({
   index,
   citedAt,
   now,
+  namespace,
+  caseId,
 }: {
   snippet: MossSnippet;
   index: number;
   citedAt?: number;
   now: number;
+  namespace?: string;
+  caseId?: string;
 }) {
   const score = formatScore(snippet.score);
   const title = snippet.title ?? snippet.amount_range ?? `Result ${index + 1}`;
@@ -136,11 +143,22 @@ function SnippetCard({
           ))}
         </ul>
       ) : null}
-      {snippet.citation || snippet.phone || source ? (
+      {snippet.citation || snippet.phone || source || snippet.id ? (
         <div className="text-muted-foreground/70 mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]">
           {snippet.citation ? <span className="font-mono">{snippet.citation}</span> : null}
           {snippet.phone ? <span>{snippet.phone}</span> : null}
-          {source ? (
+          {snippet.source_url ? (
+            <a
+              href={snippet.source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open the official source to back-check"
+              className="border-border/70 text-muted-foreground hover:border-primary hover:text-primary inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 transition-colors"
+            >
+              <span aria-hidden>↗</span>
+              verify source
+            </a>
+          ) : source ? (
             <button
               type="button"
               title={`Source record: ${source.docId}`}
@@ -157,6 +175,15 @@ function SnippetCard({
               {source.docId}
             </button>
           ) : null}
+          {snippet.feedback ? (
+            <span
+              className={snippet.feedback > 0 ? 'text-emerald-600' : 'text-red-600'}
+              title="Net lawyer feedback shifting this source's rank"
+            >
+              {snippet.feedback > 0 ? `↑ +${snippet.feedback}` : `↓ ${snippet.feedback}`}
+            </span>
+          ) : null}
+          <SourceFeedback sourceId={snippet.id} namespace={namespace} caseId={caseId} />
         </div>
       ) : null}
     </div>
@@ -170,6 +197,8 @@ function StreamSection({
   citedAt,
   refinedAt,
   now,
+  namespace,
+  caseId,
 }: {
   label: string;
   accent: string;
@@ -177,6 +206,8 @@ function StreamSection({
   citedAt: Record<string, number>;
   refinedAt?: number;
   now: number;
+  namespace?: string;
+  caseId?: string;
 }) {
   const snippets = (retrieval?.snippets ?? []).map(normalizeSnippet);
   const isLive =
@@ -232,6 +263,8 @@ function StreamSection({
               index={i}
               citedAt={snippet.id ? citedAt[snippet.id] : undefined}
               now={now}
+              namespace={namespace}
+              caseId={caseId}
             />
           ))}
         </div>
@@ -339,6 +372,8 @@ export function MossIntelligencePanel({ record }: { record: CaseRecord }) {
               citedAt={citedAt}
               refinedAt={refinedAt[section.key]}
               now={now}
+              namespace={section.key}
+              caseId={record.case_id ? String(record.case_id) : undefined}
             />
           ))}
         </div>

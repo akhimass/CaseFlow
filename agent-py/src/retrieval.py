@@ -29,6 +29,8 @@ from typing import Any, ClassVar
 
 from moss import QueryOptions
 
+from feedback_store import FEEDBACK_WEIGHT, FIRM_FEEDBACK_POINTS
+
 logger = logging.getLogger("retrieval")
 
 # Index names (overridable via env; default to the knowledge/ subdir names).
@@ -65,6 +67,7 @@ class LawSnippet:
     text: str
     score: float | None = None
     id: str = ""  # citation id, namespace:docid
+    source_url: str = ""  # official statute URL for lawyer back-check
 
     def summary(self) -> str:
         cite = f" ({self.citation})" if self.citation else ""
@@ -82,6 +85,7 @@ class Settlement:
     text: str
     score: float | None = None
     id: str = ""  # citation id, namespace:docid
+    source_url: str = ""  # source for lawyer back-check
 
     def summary(self) -> str:
         return (
@@ -215,10 +219,14 @@ class Retriever:
         *,
         on_result: OnResult | None = None,
         cache: dict[str, list[Any]] | None = None,
+        feedback_scores: dict[str, int] | None = None,
     ) -> None:
         self._moss = moss
         self._on_result = on_result
         self._cache = cache if cache is not None else {}
+        # Per-source net feedback (namespace:docid -> +helpful/-not). Loaded from
+        # Supabase at call start; boosts/penalizes ranking (the learning loop).
+        self._feedback_scores = feedback_scores or {}
         # Monotonic sequence per emitted event (lets the UI discard stale results
         # from a slower in-flight query), and the latest rows per namespace (for
         # re-synthesis without re-querying every stream).
@@ -238,6 +246,25 @@ class Retriever:
     def latest_retrievals(self) -> dict[str, list[Any]]:
         """The most recent rows per stream, keyed for the synthesizer/orchestrator."""
         return {key: self._latest.get(ns, []) for ns, key in self._NS_TO_KEY.items()}
+
+    def set_feedback_scores(self, scores: dict[str, int]) -> None:
+        """Install the per-source feedback scores used to re-rank retrieval."""
+        self._feedback_scores = scores or {}
+
+    def _fb(self, source_id: str) -> int:
+        """Net lawyer feedback for a source id (+helpful / -not-helpful)."""
+        return self._feedback_scores.get(source_id, 0)
+
+    def _rerank(self, rows: list[Any]) -> list[Any]:
+        """Re-order semantic rows by Moss score plus the lawyer-feedback boost."""
+        if not self._feedback_scores:
+            return rows
+        return sorted(
+            rows,
+            key=lambda r: (getattr(r, "score", None) or 0.0)
+            + FEEDBACK_WEIGHT * self._fb(getattr(r, "id", "")),
+            reverse=True,
+        )
 
     # -- internal query plumbing ------------------------------------------- #
     async def _query(
@@ -432,9 +459,11 @@ class Retriever:
                 text=(getattr(d, "text", "") or "").strip(),
                 score=_score(d),
                 id=f"state-law:{getattr(d, 'id', '')}",
+                source_url=_meta(d).get("source_url", ""),
             )
             for d in docs
         ]
+        rows = self._rerank(rows)
         cards = [
             {
                 "id": r.id,
@@ -443,6 +472,8 @@ class Retriever:
                 "text": r.text,
                 "score": r.score,
                 "citation": r.citation,
+                "source_url": r.source_url,
+                "feedback": self._fb(r.id),
             }
             for r in rows
         ]
@@ -506,11 +537,18 @@ class Retriever:
                     text=(getattr(d, "text", "") or "").strip(),
                     score=_score(d),
                     id=f"settlements:{getattr(d, 'id', '')}",
+                    source_url=m.get("source_url", ""),
                 )
             )
 
-        # Prefer same-severity matches near the top, keep 3-5.
-        rows.sort(key=lambda r: (r.severity != sev, -(r.score or 0.0)))
+        # Prefer same-severity matches near the top, then Moss score plus the
+        # lawyer-feedback boost (the learning loop nudges validated comps up).
+        rows.sort(
+            key=lambda r: (
+                r.severity != sev,
+                -((r.score or 0.0) + FEEDBACK_WEIGHT * self._fb(r.id)),
+            )
+        )
         rows = rows[:5]
 
         cards = [
@@ -523,6 +561,8 @@ class Retriever:
                 "amount_high": r.amount_high,
                 "text": r.text,
                 "score": r.score,
+                "source_url": r.source_url,
+                "feedback": self._fb(r.id),
             }
             for r in rows
         ]
@@ -743,6 +783,12 @@ class Retriever:
                 reasons.append(f"local presence in {m.get('county')}")
 
             firm_id = m.get("firm_id", getattr(d, "id", ""))
+            # Learning loop: lawyers' prior feedback on this firm shifts its fit.
+            fb = self._fb(f"firms:{firm_id}")
+            if fb:
+                score += FIRM_FEEDBACK_POINTS * fb
+                if fb > 0:
+                    reasons.append("lawyers rated this firm helpful for similar cases")
             leads.append(
                 FirmLead(
                     firm_id=firm_id,

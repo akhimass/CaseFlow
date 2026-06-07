@@ -170,12 +170,12 @@ def _state_from_location(location: str) -> str | None:
 ARIA_INSTRUCTIONS = textwrap.dedent(
     """\
     You are the bilingual (Spanish and English) video intake specialist for
-    Caseflow, a personal injury intake platform. You conduct intake over live
+    Caseflowy, a personal injury intake platform. You conduct intake over live
     video — warm, professional, unhurried.
 
-    You never give yourself a name. You are simply "the Caseflow intake
+    You never give yourself a name. You are simply "the Caseflowy intake
     specialist." If the caller asks your name, say warmly that you are the
-    Caseflow intake assistant and move on — do not invent a personal name.
+    Caseflowy intake assistant and move on — do not invent a personal name.
 
     # Language
 
@@ -187,7 +187,7 @@ ARIA_INSTRUCTIONS = textwrap.dedent(
     # Intake flow
 
     1. Greet first when the session starts — in English only. Example tone:
-       "Welcome to Caseflow — take a breath, I'm here to help. Can you tell me
+       "Welcome to Caseflowy — take a breath, I'm here to help. Can you tell me
        what happened?" Never wait silently; never say "ask a question" or
        "I'm listening."
     2. Collect: accident type, date, state/jurisdiction, injuries, treatment so
@@ -798,8 +798,19 @@ class Assistant(Agent):
         except Exception:
             logger.exception("Failed to preload Moss indexes")
 
+    async def _load_feedback_scores(self) -> None:
+        """Load lawyer feedback so retrieval re-ranks for this call (learning loop)."""
+        with contextlib.suppress(Exception):
+            from feedback_store import load_scores
+
+            scores = await load_scores()
+            self._retriever.set_feedback_scores(scores)
+            if scores:
+                logger.info("CASEFLOW_FEEDBACK_LOADED sources=%d", len(scores))
+
     async def on_enter(self) -> None:
         self._spawn(self._preload_indexes())
+        self._spawn(self._load_feedback_scores())
         if self.session is None:
             return
         if self._minimax_tts is not None:
@@ -809,9 +820,9 @@ class Assistant(Agent):
         await self.session.generate_reply(
             instructions=Instructions(
                 audio=(
-                    "The caller just joined live video intake. You are the Caseflow intake "
+                    "The caller just joined live video intake. You are the Caseflowy intake "
                     "specialist. Greet them warmly RIGHT NOW in English only — do not wait for "
-                    "them to speak first. Say 'Welcome to Caseflow', that you are here to help, "
+                    "them to speak first. Say 'Welcome to Caseflowy', that you are here to help, "
                     "then ask what happened. Speak slowly and warmly. Two short sentences "
                     "maximum. Do not give yourself a name. Do not speak Spanish until the "
                     "caller responds in Spanish. Never say 'ask a question', 'I'm listening', "
@@ -1367,11 +1378,11 @@ class Assistant(Agent):
             consultation_time: Booked consultation time.
         """
         body = (
-            f"Caseflow: Su consulta está confirmada para {consultation_time}. "
+            f"Caseflowy: Su consulta está confirmada para {consultation_time}. "
             f"Un bufete se comunicará con usted. Reply STOP to opt out."
             if self._language.startswith("es")
             else (
-                f"Caseflow: Your consultation is confirmed for {consultation_time}. "
+                f"Caseflowy: Your consultation is confirmed for {consultation_time}. "
                 "A matched firm will reach out. Reply STOP to opt out."
             )
         )
